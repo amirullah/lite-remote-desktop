@@ -36,10 +36,12 @@ public sealed class HostSession
     private ClipboardService? _clipboard;
     private HostPrivacyService? _privacy;
 
-    // send-rate accounting for the adaptive controller
+    // send-rate accounting for the adaptive controller + status bar
     private long _bytesThisSecond;
+    private int _framesThisSecond;
     private long _secondStartTicks;
     private double _measuredMbps;
+    private int _measuredFps;
 
     public HostSession(MessageChannel channel, HostConfig config, ILogger log)
     {
@@ -247,10 +249,15 @@ public sealed class HostSession
                 if (frame is null || frame.IsEmpty)
                     continue; // nothing changed; loop straight back for the next event
 
-                // Client asked for a reduced stream resolution — shrink before encoding.
+                // Client asked for a reduced stream resolution — fit the frame inside the requested
+                // box preserving aspect ratio (never upscale), then encode the smaller image.
                 var s = _settings;
                 if (s.ResolutionMode == ResolutionMode.Scaled && s.ScaledWidth > 0 && s.ScaledHeight > 0)
-                    frame = scaler.Scale(frame, s.ScaledWidth, s.ScaledHeight);
+                {
+                    double k = Math.Min((double)s.ScaledWidth / frame.Width, (double)s.ScaledHeight / frame.Height);
+                    if (k < 0.999)
+                        frame = scaler.Scale(frame, (int)(frame.Width * k) & ~1, (int)(frame.Height * k) & ~1);
+                }
 
                 // Announce geometry the first time / whenever it changes.
                 if (announced is null || announced.Width != frame.Width || announced.Height != frame.Height)
@@ -329,12 +336,15 @@ public sealed class HostSession
     private void AccountBandwidth(int bytes)
     {
         _bytesThisSecond += bytes;
+        _framesThisSecond++;
         long now = Stopwatch.GetTimestamp();
         double elapsed = (now - _secondStartTicks) / (double)Stopwatch.Frequency;
         if (elapsed >= 1.0)
         {
             _measuredMbps = _bytesThisSecond * 8 / elapsed / 1_000_000;
+            _measuredFps = (int)Math.Round(_framesThisSecond / elapsed);
             _bytesThisSecond = 0;
+            _framesThisSecond = 0;
             _secondStartTicks = now;
         }
     }
@@ -345,8 +355,11 @@ public sealed class HostSession
         long now = Stopwatch.GetTimestamp();
         if ((now - _lastStatTicks) / (double)Stopwatch.Frequency < 0.5) return;
         _lastStatTicks = now;
+        // Report the fps actually achieved (frames sent per second), not the pacing target —
+        // that's what the user perceives, and it makes fps-picker changes honestly visible.
+        int shownFps = _measuredFps > 0 ? _measuredFps : adaptive.CurrentFps;
         _channel.TrySend(PayloadCodec.Stat(new SessionStat(
-            adaptive.CurrentFps, _measuredMbps, 0, encodeMs, backend)));
+            shownFps, _measuredMbps, 0, encodeMs, backend)));
     }
 
     private void OnHostClipboardChanged(ClipboardData data)

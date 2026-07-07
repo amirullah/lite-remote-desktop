@@ -35,6 +35,15 @@ internal static class Program
             }
         }
 
+        // One host per machine: a second instance would fight over port 7443 and confuse the tray.
+        using var single = new Mutex(initiallyOwned: true, @"Global\LiteRemoteHost-single", out bool createdNew);
+        if (!createdNew)
+        {
+            MessageBox.Show("LiteRemote Host is already running (check the tray icons).",
+                "LiteRemote Host", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
         ApplicationConfiguration.Initialize();
         Application.Run(new TrayContext());
     }

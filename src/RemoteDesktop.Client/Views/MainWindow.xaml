@@ -143,10 +143,17 @@
                                 <TextBlock Text="RESOLUTION" Style="{StaticResource Label}" Margin="2,16,0,5"/>
                                 <ComboBox x:Name="ResolutionBox" Width="220" HorizontalAlignment="Left" SelectedIndex="0"
                                           SelectionChanged="Resolution_Changed">
-                                    <ComboBoxItem>Native (match remote monitor)</ComboBoxItem>
-                                    <ComboBoxItem>75% of remote monitor</ComboBoxItem>
-                                    <ComboBoxItem>66% of remote monitor</ComboBoxItem>
-                                    <ComboBoxItem>50% of remote monitor</ComboBoxItem>
+                                    <ComboBoxItem>Default (native)</ComboBoxItem>
+                                    <ComboBoxItem>4K (3840×2160)</ComboBoxItem>
+                                    <ComboBoxItem>2560×1600</ComboBoxItem>
+                                    <ComboBoxItem>2560×1440</ComboBoxItem>
+                                    <ComboBoxItem>1920×1080</ComboBoxItem>
+                                    <ComboBoxItem>1680×1050</ComboBoxItem>
+                                    <ComboBoxItem>1366×768</ComboBoxItem>
+                                    <ComboBoxItem>1280×1024</ComboBoxItem>
+                                    <ComboBoxItem>1280×800</ComboBoxItem>
+                                    <ComboBoxItem>1280×720</ComboBoxItem>
+                                    <ComboBoxItem>1024×768</ComboBoxItem>
                                 </ComboBox>
 
                                 <TextBlock Text="IMAGE QUALITY" Style="{StaticResource Label}" Margin="2,16,0,5"/>
@@ -212,12 +219,19 @@
 
                     <TextBlock DockPanel.Dock="Left" Text="Res" Foreground="{StaticResource Muted}"
                                VerticalAlignment="Center" Margin="16,0,6,0"/>
-                    <ComboBox x:Name="SessionResBox" Width="100" DockPanel.Dock="Left" SelectedIndex="0"
+                    <ComboBox x:Name="SessionResBox" Width="130" DockPanel.Dock="Left" SelectedIndex="0"
                               SelectionChanged="SessionRes_Changed">
-                        <ComboBoxItem>Native</ComboBoxItem>
-                        <ComboBoxItem>75%</ComboBoxItem>
-                        <ComboBoxItem>66%</ComboBoxItem>
-                        <ComboBoxItem>50%</ComboBoxItem>
+                        <ComboBoxItem>Default</ComboBoxItem>
+                        <ComboBoxItem>4K (3840×2160)</ComboBoxItem>
+                        <ComboBoxItem>2560×1600</ComboBoxItem>
+                        <ComboBoxItem>2560×1440</ComboBoxItem>
+                        <ComboBoxItem>1920×1080</ComboBoxItem>
+                        <ComboBoxItem>1680×1050</ComboBoxItem>
+                        <ComboBoxItem>1366×768</ComboBoxItem>
+                        <ComboBoxItem>1280×1024</ComboBoxItem>
+                        <ComboBoxItem>1280×800</ComboBoxItem>
+                        <ComboBoxItem>1280×720</ComboBoxItem>
+                        <ComboBoxItem>1024×768</ComboBoxItem>
                     </ComboBox>
 
                     <Button Content="Ctrl+Alt+Del" Style="{StaticResource Ghost}" DockPanel.Dock="Left" Margin="16,0,0,0" Click="Cad_Click"/>

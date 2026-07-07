@@ -28,8 +28,22 @@ public partial class MainWindow : Window
 
     // Index 0 is "Automatic"; anything else is a fixed frame-rate choice.
     private static readonly int[] FpsChoices = { 0, 15, 24, 30, 45, 60, 75, 90, 120, 144 };
-    // Fraction of the remote monitor's native size the stream should use.
-    private static readonly double[] ResChoices = { 1.0, 0.75, 0.66, 0.50 };
+    // Index 0 is "Default" (native). Others are concrete stream-size targets; the host fits the
+    // remote monitor into the box preserving aspect ratio, and never upscales.
+    private static readonly (int W, int H)[] ResChoices =
+    {
+        (0, 0),          // Default (native)
+        (3840, 2160),
+        (2560, 1600),
+        (2560, 1440),
+        (1920, 1080),
+        (1680, 1050),
+        (1366, 768),
+        (1280, 1024),
+        (1280, 800),
+        (1280, 720),
+        (1024, 768),
+    };
     private IReadOnlyList<DisplayInfo>? _displays;
     private bool _syncingUi;
 
@@ -242,18 +256,11 @@ public partial class MainWindow : Window
         };
     }
 
-    /// <summary>
-    /// Turns a percentage choice into concrete stream dimensions for the chosen monitor. Before the
-    /// host's display list arrives the geometry is unknown, so we fall back to native and re-push
-    /// once <see cref="PopulateDisplays"/> runs.
-    /// </summary>
-    private (ResolutionMode Mode, int W, int H) ResolveResolution(int resIndex, int displayIndex)
+    /// <summary>Turns a preset choice into the stream-size box sent to the host.</summary>
+    private static (ResolutionMode Mode, int W, int H) ResolveResolution(int resIndex, int displayIndex)
     {
-        double ratio = ResChoices[Math.Clamp(resIndex, 0, ResChoices.Length - 1)];
-        if (ratio >= 0.999) return (ResolutionMode.Native, 0, 0);
-        var d = _displays != null && displayIndex >= 0 && displayIndex < _displays.Count ? _displays[displayIndex] : null;
-        if (d is null) return (ResolutionMode.Native, 0, 0);
-        return (ResolutionMode.Scaled, (int)(d.Width * ratio) & ~1, (int)(d.Height * ratio) & ~1);
+        var (w, h) = ResChoices[Math.Clamp(resIndex, 0, ResChoices.Length - 1)];
+        return w == 0 ? (ResolutionMode.Native, 0, 0) : (ResolutionMode.Scaled, w, h);
     }
 
     private async void PushSettings()
@@ -271,13 +278,6 @@ public partial class MainWindow : Window
             DisplayBox.Items.Add($"#{d.Index} {d.Width}×{d.Height}{(d.IsPrimary ? " (primary)" : "")}");
         DisplayBox.SelectedIndex = Math.Min(_settings.DisplayIndex, displays.Count - 1);
         DisplayBox.SelectionChanged += Display_Changed;
-
-        // Percentage resolutions need the real monitor geometry, which only just arrived.
-        if (ResolutionBox.SelectedIndex > 0)
-        {
-            BuildSettings();
-            PushSettings();
-        }
     }
 
     // ---------------- UI event handlers ----------------
