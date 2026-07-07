@@ -23,6 +23,7 @@ lewat internet langsung **atau** lewat profil VPN (OpenVPN) yang hanya dipakai o
 | Copy-paste apa pun dari remote | Sinkronisasi clipboard dua arah: teks, gambar (PNG), dan daftar file. |
 | Benar-benar ringan & cepat | Diff 8-byte per tile, `ArrayPool`, TCP `NoDelay`, decode JPEG off-thread, blit satu-pass ke `WriteableBitmap`. |
 | Login manual atau Google | Password (Argon2id) **atau** Login dengan Google (OAuth PKCE + verifikasi id_token offline). |
+| Remote lewat **ID** (ala TeamViewer) | Host mendaftar ID 9-digit ke **relay server**; viewer cukup masukkan ID + password — tanpa tahu IP/port. Enkripsi tetap **end-to-end**, relay hanya meneruskan byte. |
 | VPN per-aplikasi (OpenVPN) atau internet langsung | `VpnService` menaikkan tunnel OpenVPN & mem-bind socket ke IP tunnel → hanya koneksi ini yang lewat VPN. |
 | Keamanan tinggi | TLS 1.2/1.3, pinning kunci publik (TOFU), Argon2id, allow-list email/CIDR, blank screen & lock input host. |
 
@@ -99,6 +100,24 @@ dotnet build src/RemoteDesktop.Host -c Release -p:EnableDxgi=true
 6. Pada koneksi pertama, cocokkan fingerprint dengan yang di host, lalu **Trust**.
 
 ---
+
+## Remote lewat ID (ala TeamViewer)
+
+Agar tidak perlu tahu IP atau setup port-forward, LiteRemote punya **relay/rendezvous server**
+ringan (`RemoteDesktop.Relay`, ~1 file) yang bisa Anda jalankan di VPS kecil mana pun:
+
+```bash
+# di VPS (Linux/Windows), buka port 7500:
+./LiteRemoteRelay 7500
+```
+
+Lalu:
+1. **Host** → tray → *Set up ID access (relay)* → isi `alamat-vps:7500`. Host menampilkan **ID 9-digit**.
+2. **Viewer** → tab **Connect by ID** → masukkan ID + password → **Connect**.
+
+Relay **hanya menyambungkan dua socket** dan meneruskan lalu lintas yang **sudah terenkripsi TLS**
+end-to-end; ia tidak bisa membaca layar, input, atau clipboard. Certificate pinning tetap berlaku
+(di-pin berdasarkan ID). ID dilindungi *secret* per-host agar tidak bisa diklaim mesin lain.
 
 ## Keamanan
 

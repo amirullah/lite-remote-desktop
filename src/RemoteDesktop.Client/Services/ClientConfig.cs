@@ -12,6 +12,9 @@ public sealed class ClientConfig
     public SessionSettings DefaultSettings { get; set; } = new();
     public string? GoogleClientId { get; set; }
 
+    /// <summary>Relay server ("host:port") used for ID-based connections. Shared with the host side.</summary>
+    public string RelayAddress { get; set; } = "";
+
     public void Remember(SavedConnection conn)
     {
         Recent.RemoveAll(c => c.Host == conn.Host && c.Port == conn.Port);

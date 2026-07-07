@@ -65,32 +65,8 @@ public sealed class RemoteConnection : IAsyncDisposable
                 ? new TcpClient { NoDelay = true }
                 : new TcpClient(new System.Net.IPEndPoint(bindAddress, 0)) { NoDelay = true };
             await tcp.ConnectAsync(host, port, _cts.Token).ConfigureAwait(false);
-
-            var ssl = new SslStream(tcp.GetStream(), leaveInnerStreamOpen: false,
-                (_, cert, _, _) => ValidateCertificate(endpoint, cert));
-
-            await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
-            {
-                TargetHost = host,
-                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
-                CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
-            }, _cts.Token).ConfigureAwait(false);
-
-            _channel = new MessageChannel(ssl);
-
-            SetState(ConnectionState.Authenticating, "Authenticating…");
-            if (!await AuthenticateAsync(credential, _cts.Token).ConfigureAwait(false))
-            {
-                SetState(ConnectionState.Failed, "Authentication rejected by host.");
-                return false;
-            }
-
-            // Kick the stream off with our initial preferences.
-            await _channel.SendAsync(PayloadCodec.Settings(initial), _cts.Token).ConfigureAwait(false);
-
-            SetState(ConnectionState.Connected, "Connected.");
-            _ = Task.Run(() => MessageLoopAsync(_cts.Token));
-            return true;
+            return await RunSessionAsync(tcp.GetStream(), endpoint, host, credential, initial, _cts.Token)
+                .ConfigureAwait(false);
         }
         catch (AuthenticationException ex)
         {
@@ -102,6 +78,75 @@ public sealed class RemoteConnection : IAsyncDisposable
             SetState(ConnectionState.Failed, $"Connection failed: {ex.Message}");
             return false;
         }
+    }
+
+    /// <summary>
+    /// Connect by 9-digit ID through the relay (TeamViewer-style). We open a "connect" request to
+    /// the relay; once it splices us to the host, the very same socket carries the end-to-end TLS
+    /// session — so pinning and auth are identical to a direct connection, keyed by the host ID.
+    /// </summary>
+    public async Task<bool> ConnectViaRelayAsync(string relayAddress, string hostId, Credential credential,
+        SessionSettings initial, CancellationToken ct = default)
+    {
+        _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var id = Shared.Relay.RelayProtocol.NormalizeId(hostId);
+        SetState(ConnectionState.Connecting, $"Reaching ID {Shared.Relay.RelayProtocol.FormatId(id)}…");
+
+        try
+        {
+            var parts = relayAddress.Split(':', 2);
+            string rhost = parts[0].Trim();
+            int rport = parts.Length > 1 && int.TryParse(parts[1], out var p) ? p : Shared.Relay.RelayProtocol.DefaultPort;
+
+            var tcp = new TcpClient { NoDelay = true };
+            await tcp.ConnectAsync(rhost, rport, _cts.Token).ConfigureAwait(false);
+            var raw = tcp.GetStream();
+
+            await Shared.Relay.RelayProtocol.SendAsync(raw, new Shared.Relay.RelayMsg { Op = "connect", Id = id }, _cts.Token)
+                .ConfigureAwait(false);
+            var reply = await Shared.Relay.RelayProtocol.ReadAsync(raw, _cts.Token).ConfigureAwait(false);
+            if (reply is not { Ok: true })
+            {
+                SetState(ConnectionState.Failed, reply?.Error ?? "Relay could not reach that ID.");
+                return false;
+            }
+
+            // Pin/auth are keyed by the stable ID, not a transient relay address.
+            return await RunSessionAsync(raw, $"id:{id}", id, credential, initial, _cts.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            SetState(ConnectionState.Failed, $"Relay connection failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    private async Task<bool> RunSessionAsync(Stream transport, string pinKey, string targetHost,
+        Credential credential, SessionSettings initial, CancellationToken ct)
+    {
+        var ssl = new SslStream(transport, leaveInnerStreamOpen: false,
+            (_, cert, _, _) => ValidateCertificate(pinKey, cert));
+
+        await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+        {
+            TargetHost = targetHost,
+            EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+            CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
+        }, ct).ConfigureAwait(false);
+
+        _channel = new MessageChannel(ssl);
+
+        SetState(ConnectionState.Authenticating, "Authenticating…");
+        if (!await AuthenticateAsync(credential, ct).ConfigureAwait(false))
+        {
+            SetState(ConnectionState.Failed, "Authentication rejected by host.");
+            return false;
+        }
+
+        await _channel.SendAsync(PayloadCodec.Settings(initial), ct).ConfigureAwait(false);
+        SetState(ConnectionState.Connected, "Connected.");
+        _ = Task.Run(() => MessageLoopAsync(_cts!.Token));
+        return true;
     }
 
     private bool ValidateCertificate(string endpoint, X509Certificate? cert)

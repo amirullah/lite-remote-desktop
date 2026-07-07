@@ -52,8 +52,9 @@ internal sealed class TrayContext : ApplicationContext
     private ContextMenuStrip BuildMenu()
     {
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Show status / fingerprint", null, (_, _) => ShowStatus());
+        menu.Items.Add("Show status / ID / fingerprint", null, (_, _) => ShowStatus());
         menu.Items.Add("Set access password…", null, (_, _) => SetPassword());
+        menu.Items.Add("Set up ID access (relay)…", null, (_, _) => ConfigureRelay());
         menu.Items.Add("Configure Google login…", null, (_, _) => ConfigureGoogle());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitApp());
@@ -103,13 +104,44 @@ internal sealed class TrayContext : ApplicationContext
         if (_config.AllowPassword && _config.HasPassword) methods.Add("Password");
         if (_config.AllowGoogle && !string.IsNullOrEmpty(_config.GoogleClientId)) methods.Add("Google");
 
+        string idLine;
+        if (!string.IsNullOrWhiteSpace(_config.RelayAddress) && !string.IsNullOrEmpty(_config.HostId))
+        {
+            var online = _server?.RelayOnline == true ? "online" : "connecting…";
+            idLine = $"Your ID: {Shared.Relay.RelayProtocol.FormatId(_config.HostId)}  ({online} via {_config.RelayAddress})\n";
+        }
+        else
+        {
+            idLine = "Your ID: (not set up — use \"Set up ID access\")\n";
+        }
+
         MessageBox.Show(
             $"LiteRemote Host\n\n" +
+            idLine +
             $"Port: {_config.Port}\n" +
             $"Bind: {_config.BindAddress}\n" +
             $"Auth: {(methods.Count == 0 ? "NONE" : string.Join(", ", methods))}\n\n" +
             $"Certificate fingerprint (share this with the client so they can verify the host):\n\n{fp}",
             "LiteRemote Host — Status", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private void ConfigureRelay()
+    {
+        var relay = InputDialog.Show("ID access (relay)",
+            "Relay server address (host:port). Leave empty to disable ID access:",
+            masked: false, _config.RelayAddress);
+        if (relay is null) return; // cancelled
+
+        _config.RelayAddress = relay.Trim();
+        if (_config.RelayAddress.Length > 0) _config.EnsureIdentity();
+        _config.Save();
+        RestartServer();
+
+        var msg = _config.RelayAddress.Length == 0
+            ? "ID access disabled."
+            : $"ID access enabled.\n\nYour ID: {Shared.Relay.RelayProtocol.FormatId(_config.HostId)}\n\n" +
+              "Share this ID (and the access password) with whoever connects.";
+        MessageBox.Show(msg, "LiteRemote Host", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
     private void SetPassword()

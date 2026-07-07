@@ -3,53 +3,181 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="Views/MainWindow.xaml">
     <Application.Resources>
-        <!-- Compact dark theme so the app stays visually out of the way of the remote content. -->
-        <SolidColorBrush x:Key="Bg" Color="#1E1F22"/>
-        <SolidColorBrush x:Key="Panel" Color="#2B2D31"/>
-        <SolidColorBrush x:Key="Accent" Color="#5865F2"/>
-        <SolidColorBrush x:Key="Fg" Color="#E4E6EB"/>
-        <SolidColorBrush x:Key="Muted" Color="#9AA0A6"/>
+        <!-- ============ palette ============ -->
+        <Color x:Key="AccentColor">#6D5EF6</Color>
+        <Color x:Key="Accent2Color">#8B7CFF</Color>
+        <SolidColorBrush x:Key="Bg" Color="#0F1017"/>
+        <SolidColorBrush x:Key="Panel" Color="#191B26"/>
+        <SolidColorBrush x:Key="PanelHi" Color="#222536"/>
+        <SolidColorBrush x:Key="Stroke" Color="#2C3040"/>
+        <SolidColorBrush x:Key="Accent" Color="{StaticResource AccentColor}"/>
+        <SolidColorBrush x:Key="Fg" Color="#EEF0F6"/>
+        <SolidColorBrush x:Key="Muted" Color="#8A90A6"/>
+        <SolidColorBrush x:Key="Good" Color="#3FB950"/>
+        <SolidColorBrush x:Key="Bad" Color="#E5534B"/>
 
+        <LinearGradientBrush x:Key="AccentGrad" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="{StaticResource AccentColor}" Offset="0"/>
+            <GradientStop Color="{StaticResource Accent2Color}" Offset="1"/>
+        </LinearGradientBrush>
+        <LinearGradientBrush x:Key="AppBg" StartPoint="0,0" EndPoint="0.6,1">
+            <GradientStop Color="#12131C" Offset="0"/>
+            <GradientStop Color="#0C0D14" Offset="1"/>
+        </LinearGradientBrush>
+
+        <!-- ============ text ============ -->
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource Fg}"/>
-            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
+            <Setter Property="TextOptions.TextFormattingMode" Value="Ideal"/>
         </Style>
 
+        <!-- ============ primary button ============ -->
         <Style TargetType="Button">
-            <Setter Property="Background" Value="{StaticResource Accent}"/>
             <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Background" Value="{StaticResource AccentGrad}"/>
+            <Setter Property="Padding" Value="16,9"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FontFamily" Value="Segoe UI"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" CornerRadius="6"
+                        <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="9"
                                 Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Opacity" Value="0.90"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="b" Property="Opacity" Value="0.78"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="b" Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
 
-        <Style TargetType="TextBox">
-            <Setter Property="Background" Value="#1E1F22"/>
+        <!-- ghost / secondary button -->
+        <Style x:Key="Ghost" TargetType="Button">
             <Setter Property="Foreground" Value="{StaticResource Fg}"/>
-            <Setter Property="BorderBrush" Value="#3A3C41"/>
-            <Setter Property="Padding" Value="6,4"/>
-            <Setter Property="CaretBrush" Value="White"/>
+            <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
+            <Setter Property="Background" Value="#00000000"/>
+            <Setter Property="Padding" Value="12,7"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="8"
+                                BorderBrush="{StaticResource Stroke}" BorderThickness="1"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="{StaticResource PanelHi}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ============ inputs ============ -->
+        <Style TargetType="TextBox">
+            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+            <Setter Property="CaretBrush" Value="{StaticResource Accent}"/>
+            <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="b" Background="{StaticResource Bg}" CornerRadius="8"
+                                BorderBrush="{StaticResource Stroke}" BorderThickness="1" Padding="10,8">
+                            <ScrollViewer x:Name="PART_ContentHost"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style TargetType="PasswordBox">
-            <Setter Property="Background" Value="#1E1F22"/>
             <Setter Property="Foreground" Value="{StaticResource Fg}"/>
-            <Setter Property="BorderBrush" Value="#3A3C41"/>
-            <Setter Property="Padding" Value="6,4"/>
-            <Setter Property="CaretBrush" Value="White"/>
+            <Setter Property="CaretBrush" Value="{StaticResource Accent}"/>
+            <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="PasswordBox">
+                        <Border x:Name="b" Background="{StaticResource Bg}" CornerRadius="8"
+                                BorderBrush="{StaticResource Stroke}" BorderThickness="1" Padding="10,8">
+                            <ScrollViewer x:Name="PART_ContentHost"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
+
         <Style TargetType="ComboBox">
-            <Setter Property="Padding" Value="6,3"/>
+            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+            <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
+            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="Height" Value="38"/>
+        </Style>
+
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+            <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
+        </Style>
+
+        <!-- segmented toggle (RadioButton styled as a pill tab) -->
+        <Style x:Key="Segment" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="b" Background="Transparent" CornerRadius="7" Padding="14,8">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="{StaticResource AccentGrad}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsChecked" Value="False"/>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                </MultiTrigger.Conditions>
+                                <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+                            </MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="Label" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="2,0,0,5"/>
         </Style>
     </Application.Resources>
 </Application>

@@ -29,8 +29,18 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        RelayBox.Text = _config.RelayAddress;
+        if (!string.IsNullOrEmpty(_config.GoogleClientId)) GoogleClientIdBox.Text = _config.GoogleClientId;
         Loaded += (_, _) => _clipboard = new ClipboardBridge(this);
         Closing += (_, _) => Cleanup();
+    }
+
+    private void Mode_Changed(object sender, RoutedEventArgs e)
+    {
+        if (IdModePanel is null || AddrModePanel is null) return;
+        bool idMode = ModeIdRadio.IsChecked == true;
+        IdModePanel.Visibility = idMode ? Visibility.Visible : Visibility.Collapsed;
+        AddrModePanel.Visibility = idMode ? Visibility.Collapsed : Visibility.Visible;
     }
 
     // ---------------- connect ----------------
@@ -41,17 +51,7 @@ public partial class MainWindow : Window
         try
         {
             _settings = BuildSettings();
-
-            if (!int.TryParse(PortBox.Text, out int port)) port = 7443;
-            string host = HostBox.Text.Trim();
-            if (host.Length == 0) { SetStatus("Enter a host address."); return; }
-
-            IPAddress? bind = null;
-            if (NetworkModeBox.SelectedIndex == 1)
-            {
-                bind = await StartVpnAsync(host);
-                if (bind is null) return; // StartVpnAsync reported the error
-            }
+            bool idMode = ModeIdRadio.IsChecked == true;
 
             Credential? credential = await BuildCredentialAsync();
             if (credential is null) { SetStatus("Choose a valid login method."); return; }
@@ -59,16 +59,35 @@ public partial class MainWindow : Window
             _connection = new RemoteConnection(_pins);
             WireConnection(_connection);
 
-            bool ok = await _connection.ConnectAsync(host, port, credential, _settings, bind);
-            if (ok)
+            bool ok;
+            if (idMode)
             {
-                _config.Remember(new SavedConnection { Host = host, Port = port, Label = host });
-                EnterSession();
+                string relay = RelayBox.Text.Trim();
+                string id = Shared.Relay.RelayProtocol.NormalizeId(IdBox.Text);
+                if (relay.Length == 0) { SetStatus("Set a relay server under Advanced first."); return; }
+                if (id.Length != 9) { SetStatus("Enter the full 9-digit partner ID."); return; }
+                _config.RelayAddress = relay;
+                _config.Save();
+                ok = await _connection.ConnectViaRelayAsync(relay, id, credential, _settings);
             }
             else
             {
-                await DisconnectAsync(); // tears down the failed connection + any VPN tunnel
+                if (!int.TryParse(PortBox.Text, out int port)) port = 7443;
+                string host = HostBox.Text.Trim();
+                if (host.Length == 0) { SetStatus("Enter a host address."); return; }
+
+                IPAddress? bind = null;
+                if (NetworkModeBox.SelectedIndex == 1)
+                {
+                    bind = await StartVpnAsync(host);
+                    if (bind is null) return; // StartVpnAsync reported the error
+                }
+                ok = await _connection.ConnectAsync(host, port, credential, _settings, bind);
+                if (ok) _config.Remember(new SavedConnection { Host = host, Port = port, Label = host });
             }
+
+            if (ok) EnterSession();
+            else await DisconnectAsync(); // tears down the failed connection + any VPN tunnel
         }
         catch (Exception ex)
         {

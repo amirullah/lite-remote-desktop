@@ -49,6 +49,21 @@ jobs:
           -p:EnableCompressionInSingleFile=true -p:DebugType=none
           -o publish/host
 
+      # The relay is a tiny server component — publish it for both Linux (typical VPS) and Windows.
+      - name: Publish relay (Linux)
+        run: >
+          dotnet publish src/RemoteDesktop.Relay/RemoteDesktop.Relay.csproj
+          -c Release -r linux-x64 --self-contained true
+          -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugType=none
+          -o publish/relay-linux
+
+      - name: Publish relay (Windows)
+        run: >
+          dotnet publish src/RemoteDesktop.Relay/RemoteDesktop.Relay.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugType=none
+          -o publish/relay-win
+
       - name: Derive version
         id: ver
         shell: pwsh
@@ -73,6 +88,8 @@ jobs:
         run: |
           Compress-Archive -Path publish/client/* -DestinationPath "LiteRemote-Viewer-${{ steps.ver.outputs.version }}.zip"
           Compress-Archive -Path publish/host/*   -DestinationPath "LiteRemote-Host-${{ steps.ver.outputs.version }}.zip"
+          Compress-Archive -Path publish/relay-linux/* -DestinationPath "LiteRemote-Relay-linux-${{ steps.ver.outputs.version }}.zip"
+          Compress-Archive -Path publish/relay-win/*   -DestinationPath "LiteRemote-Relay-win-${{ steps.ver.outputs.version }}.zip"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
