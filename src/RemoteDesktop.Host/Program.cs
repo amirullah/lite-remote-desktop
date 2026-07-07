@@ -9,9 +9,32 @@ namespace RemoteDesktop.Host;
 internal static class Program
 {
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
         AppPaths.EnsureRoot();
+
+        // Headless CLI helpers so scripts/automation can configure the host without the tray UI.
+        //   LiteRemoteHost --set-password <pwd>   set access password and exit
+        //   LiteRemoteHost --show-id              print the relay ID (if configured) and exit
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--set-password" && i + 1 < args.Length)
+            {
+                var cfg = HostConfig.Load();
+                cfg.AllowPassword = true;
+                cfg.SetPassword(args[i + 1]);
+                cfg.Save();
+                Console.WriteLine("Access password set.");
+                return;
+            }
+            if (args[i] == "--show-id")
+            {
+                var cfg = HostConfig.Load();
+                Console.WriteLine(string.IsNullOrEmpty(cfg.HostId) ? "(no ID — set up relay access)" : cfg.HostId);
+                return;
+            }
+        }
+
         ApplicationConfiguration.Initialize();
         Application.Run(new TrayContext());
     }
