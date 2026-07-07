@@ -1,0 +1,142 @@
+<Window x:Class="RemoteDesktop.Client.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="LiteRemote" Height="720" Width="1080"
+        Background="{StaticResource Bg}" WindowStartupLocation="CenterScreen">
+
+    <Grid>
+        <!-- ============ CONNECT PANEL ============ -->
+        <Grid x:Name="ConnectPanel" MaxWidth="720" Margin="24">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock Text="LiteRemote" FontSize="30" FontWeight="Bold"/>
+                    <TextBlock Text="Fast, lightweight, secure remote desktop." Foreground="{StaticResource Muted}" Margin="0,2,0,20"/>
+
+                    <Border Background="{StaticResource Panel}" CornerRadius="10" Padding="20">
+                        <StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="3*"/>
+                                    <ColumnDefinition Width="12"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Host address"/>
+                                    <TextBox x:Name="HostBox" Margin="0,4,0,0" Text="192.168.1.10"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Port"/>
+                                    <TextBox x:Name="PortBox" Margin="0,4,0,0" Text="7443"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <TextBlock Text="Sign in with" Margin="0,14,0,0"/>
+                            <ComboBox x:Name="AuthMethodBox" Margin="0,4,0,0" SelectedIndex="0"
+                                      SelectionChanged="AuthMethod_Changed">
+                                <ComboBoxItem>Password</ComboBoxItem>
+                                <ComboBoxItem>Google account</ComboBoxItem>
+                            </ComboBox>
+
+                            <StackPanel x:Name="PasswordArea" Margin="0,10,0,0">
+                                <TextBlock Text="Access password"/>
+                                <PasswordBox x:Name="PasswordBox" Margin="0,4,0,0"/>
+                            </StackPanel>
+                            <StackPanel x:Name="GoogleArea" Margin="0,10,0,0" Visibility="Collapsed">
+                                <TextBlock Text="Google OAuth client id"/>
+                                <TextBox x:Name="GoogleClientIdBox" Margin="0,4,0,0"/>
+                                <TextBlock Text="A browser window will open to sign you in." Foreground="{StaticResource Muted}" Margin="0,4,0,0"/>
+                            </StackPanel>
+
+                            <TextBlock Text="Network path" Margin="0,14,0,0"/>
+                            <ComboBox x:Name="NetworkModeBox" Margin="0,4,0,0" SelectedIndex="0"
+                                      SelectionChanged="NetworkMode_Changed">
+                                <ComboBoxItem>Direct internet / LAN</ComboBoxItem>
+                                <ComboBoxItem>Through VPN profile (this app only)</ComboBoxItem>
+                            </ComboBox>
+                            <StackPanel x:Name="VpnArea" Orientation="Horizontal" Margin="0,8,0,0" Visibility="Collapsed">
+                                <TextBox x:Name="VpnProfileBox" Width="440" IsReadOnly="True"
+                                         Text="(no .ovpn profile selected)"/>
+                                <Button Content="Browse…" Margin="8,0,0,0" Click="BrowseVpn_Click"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Expander Header="Performance &amp; display" Foreground="{StaticResource Fg}" Margin="0,14,0,0" IsExpanded="True">
+                        <Border Background="{StaticResource Panel}" CornerRadius="10" Padding="20" Margin="0,8,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Frame rate"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                    <ComboBox x:Name="FpsModeBox" Width="140" SelectedIndex="0" SelectionChanged="FpsMode_Changed">
+                                        <ComboBoxItem>Automatic</ComboBoxItem>
+                                        <ComboBoxItem>Fixed</ComboBoxItem>
+                                    </ComboBox>
+                                    <TextBlock x:Name="FpsValueLabel" Text="Max 144" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                    <Slider x:Name="FpsSlider" Width="260" Minimum="15" Maximum="144" Value="144"
+                                            VerticalAlignment="Center" Margin="12,0,0,0"
+                                            TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Fps_Changed"/>
+                                </StackPanel>
+
+                                <TextBlock Text="Resolution" Margin="0,14,0,0"/>
+                                <ComboBox x:Name="ResolutionBox" Width="360" HorizontalAlignment="Left" Margin="0,4,0,0" SelectedIndex="0">
+                                    <ComboBoxItem>Native (match remote monitor)</ComboBoxItem>
+                                    <ComboBoxItem>Scale to my window (save bandwidth)</ComboBoxItem>
+                                    <ComboBoxItem>Ask host to match my window size</ComboBoxItem>
+                                </ComboBox>
+
+                                <TextBlock Text="Image quality" Margin="0,14,0,0"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                    <Slider x:Name="QualitySlider" Width="320" Minimum="20" Maximum="95" Value="75"
+                                            VerticalAlignment="Center" ValueChanged="Quality_Changed"/>
+                                    <TextBlock x:Name="QualityLabel" Text="75" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                </StackPanel>
+
+                                <WrapPanel Margin="0,14,0,0">
+                                    <CheckBox x:Name="ClipboardCheck" Content="Sync clipboard" Foreground="{StaticResource Fg}" IsChecked="True" Margin="0,0,20,0"/>
+                                    <CheckBox x:Name="BlankScreenCheck" Content="Blank host screen" Foreground="{StaticResource Fg}" Margin="0,0,20,0"/>
+                                    <CheckBox x:Name="LockInputCheck" Content="Lock host keyboard/mouse" Foreground="{StaticResource Fg}"/>
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
+                    </Expander>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                        <Button x:Name="ConnectButton" Content="Connect" Padding="28,10" FontSize="15" Click="Connect_Click"/>
+                        <TextBlock x:Name="StatusText" VerticalAlignment="Center" Margin="16,0,0,0" Foreground="{StaticResource Muted}"/>
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <!-- ============ SESSION PANEL ============ -->
+        <Grid x:Name="SessionPanel" Visibility="Collapsed" Background="Black">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" Background="{StaticResource Panel}" Padding="8,6">
+                <DockPanel LastChildFill="False">
+                    <TextBlock Text="Monitor:" VerticalAlignment="Center" Margin="4,0,6,0"/>
+                    <ComboBox x:Name="DisplayBox" Width="150" DockPanel.Dock="Left" SelectionChanged="Display_Changed"/>
+
+                    <TextBlock Text="FPS:" VerticalAlignment="Center" Margin="14,0,6,0"/>
+                    <ComboBox x:Name="SessionFpsModeBox" Width="110" DockPanel.Dock="Left" SelectedIndex="0" SelectionChanged="SessionFpsMode_Changed">
+                        <ComboBoxItem>Automatic</ComboBoxItem>
+                        <ComboBoxItem>Fixed</ComboBoxItem>
+                    </ComboBox>
+
+                    <Button Content="Ctrl+Alt+Del" DockPanel.Dock="Left" Margin="14,0,0,0" Click="Cad_Click"/>
+                    <Button Content="Fullscreen" DockPanel.Dock="Left" Margin="8,0,0,0" Click="Fullscreen_Click"/>
+                    <Button Content="Disconnect" DockPanel.Dock="Right" Background="#D83C3E" Click="Disconnect_Click"/>
+                    <TextBlock x:Name="StatText" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,16,0"
+                               Foreground="{StaticResource Muted}" Text="—"/>
+                </DockPanel>
+            </Border>
+
+            <Grid Grid.Row="1" x:Name="SurfaceHost" Background="Black" ClipToBounds="True">
+                <Image x:Name="RemoteImage" Stretch="Uniform" RenderOptions.BitmapScalingMode="LowQuality"
+                       SnapsToDevicePixels="True"/>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

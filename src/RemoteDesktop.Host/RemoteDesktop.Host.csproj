@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>LiteRemoteHost</AssemblyName>
+    <RootNamespace>RemoteDesktop.Host</RootNamespace>
+    <!-- Small self-contained single file for easy deployment on the controlled PC. -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>false</SelfContained>
+
+    <!-- Opt-in DXGI Desktop Duplication fast path. Build with -p:EnableDxgi=true to turn it on.
+         Default is GDI capture, which always compiles and runs everywhere. -->
+    <EnableDxgi Condition="'$(EnableDxgi)' == ''">false</EnableDxgi>
+    <DefineConstants Condition="'$(EnableDxgi)' == 'true'">$(DefineConstants);ENABLE_DXGI</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Drawing.Common" Version="8.0.7" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- Managed DirectX for the high-performance Desktop Duplication capture path (opt-in). -->
+  <ItemGroup Condition="'$(EnableDxgi)' == 'true'">
+    <PackageReference Include="Vortice.Direct3D11" Version="3.6.2" />
+    <PackageReference Include="Vortice.DXGI" Version="3.6.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RemoteDesktop.Shared\RemoteDesktop.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

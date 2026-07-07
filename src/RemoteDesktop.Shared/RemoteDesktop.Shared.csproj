@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>RemoteDesktop.Shared</AssemblyName>
+    <RootNamespace>RemoteDesktop.Shared</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Fast, allocation-light compression for changed screen tiles / control payloads. -->
+    <PackageReference Include="K4os.Compression.LZ4" Version="1.3.8" />
+    <!-- Memory-hard password hashing for manual login. -->
+    <PackageReference Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />
+  </ItemGroup>
+
+</Project>
