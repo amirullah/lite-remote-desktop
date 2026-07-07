@@ -29,6 +29,7 @@ public sealed class HostSession
     private volatile bool _keyFrameRequested = true;
     private volatile bool _running = true;
     private volatile bool _inputActivity;
+    private volatile bool _forceGdi; // set when DXGI proves slower than GDI (virtual GPUs)
 
     private IScreenCapture? _capture;
     private InputInjector? _injector;
@@ -232,6 +233,17 @@ public sealed class HostSession
         VideoConfig? announced = null;
         _secondStartTicks = Stopwatch.GetTimestamp();
 
+        // Capture/encode pipeline: while frame N is being encoded and sent, frame N+1 is already
+        // being captured on a worker thread (the capture backends double-buffer their output).
+        // Throughput becomes max(capture, encode) instead of capture + encode — on GDI hosts
+        // (VMs, RDP) that alone nearly doubles the frame rate.
+        IScreenCapture? pendingOwner = null;
+        Task<(CapturedFrame? Frame, long Ms)>? pendingCapture = null;
+        // Rolling capture-cost estimate, sampled only while the screen is busy (so DXGI's blocking
+        // wait-for-change on an idle screen doesn't count as "slow").
+        double captureEmaMs = 0;
+        int captureSamples = 0;
+
         while (_running && !ct.IsCancellationRequested)
         {
             try
@@ -244,8 +256,33 @@ public sealed class HostSession
                 // so the first visual response isn't delayed by a sleeping capture loop.
                 if (_inputActivity) { _inputActivity = false; idleFrames = 0; }
 
+                CapturedFrame? frame;
+                long captureMs;
+                if (pendingCapture != null && ReferenceEquals(pendingOwner, capture))
+                {
+                    (frame, captureMs) = pendingCapture.GetAwaiter().GetResult();
+                }
+                else
+                {
+                    // First iteration or the display just changed — capture synchronously.
+                    var t = Stopwatch.StartNew();
+                    frame = capture.Capture(timeoutMs: 100);
+                    captureMs = t.ElapsedMilliseconds;
+                }
+
+                // Kick off the next capture right away; it overlaps with the encode below.
+                pendingOwner = capture;
+                pendingCapture = Task.Run(() =>
+                {
+                    var t = Stopwatch.StartNew();
+                    var f = capture.Capture(timeoutMs: 100);
+                    return (f, t.ElapsedMilliseconds);
+                });
+
+                // Timing starts at the frame, not the wait-for-change — otherwise idle time would
+                // masquerade as encode cost in the stats and the adaptive controller.
                 sw.Restart();
-                var frame = capture.Capture(timeoutMs: 100);
+
                 if (frame is null || frame.IsEmpty)
                     continue; // nothing changed; loop straight back for the next event
 
@@ -300,7 +337,34 @@ public sealed class HostSession
                 AccountBandwidth(frameBytes);
                 adaptive.Observe(encodeMs, frameBytes, _measuredMbps);
 
-                MaybeSendStat(adaptive, encodeMs, capture.BackendName);
+                // Judge the capture backend only under motion: many dirty tiles means the acquire
+                // returned immediately, so the measured time is real capture/readback cost. On
+                // virtual GPUs (VMware/VirtualBox) DXGI duplication readback can take hundreds of
+                // milliseconds — far worse than plain GDI — so demote it when it proves slow.
+                if (tiles.Count >= 8)
+                {
+                    captureEmaMs = captureEmaMs == 0 ? captureMs : captureEmaMs * 0.8 + captureMs * 0.2;
+                    captureSamples++;
+                    if (!_forceGdi && captureSamples >= 10 && captureEmaMs > 60 &&
+                        capture.BackendName.StartsWith("DXGI", StringComparison.Ordinal))
+                    {
+                        _log.LogWarning(
+                            "DXGI capture averages {Ms:F0} ms — slow virtual GPU readback; switching to GDI.",
+                            captureEmaMs);
+                        _forceGdi = true;
+                        var display = capture.Display;
+                        _capture = CreateCapture(display);
+                        capture.Dispose();
+                        pendingCapture = null;
+                        pendingOwner = null;
+                        captureEmaMs = 0;
+                        captureSamples = 0;
+                        _keyFrameRequested = true;
+                        continue;
+                    }
+                }
+
+                MaybeSendStat(adaptive, (int)captureMs, encodeMs, capture.BackendName);
                 PaceFrame(sw, adaptive);
             }
             catch (OperationCanceledException) { break; }
@@ -312,6 +376,8 @@ public sealed class HostSession
                 _log.LogWarning(ex, "Capture iteration error; recovering.");
                 announced = null;
                 _keyFrameRequested = true;
+                pendingCapture = null; // may belong to a capture disposed under us
+                pendingOwner = null;
                 Thread.Sleep(50);
             }
         }
@@ -350,16 +416,17 @@ public sealed class HostSession
     }
 
     private long _lastStatTicks;
-    private void MaybeSendStat(AdaptiveController adaptive, int encodeMs, string backend)
+    private void MaybeSendStat(AdaptiveController adaptive, int captureMs, int encodeMs, string backend)
     {
         long now = Stopwatch.GetTimestamp();
         if ((now - _lastStatTicks) / (double)Stopwatch.Frequency < 0.5) return;
         _lastStatTicks = now;
         // Report the fps actually achieved (frames sent per second), not the pacing target —
         // that's what the user perceives, and it makes fps-picker changes honestly visible.
+        // The RoundTripMs slot carries the capture cost so the client can show cap/enc separately.
         int shownFps = _measuredFps > 0 ? _measuredFps : adaptive.CurrentFps;
         _channel.TrySend(PayloadCodec.Stat(new SessionStat(
-            shownFps, _measuredMbps, 0, encodeMs, backend)));
+            shownFps, _measuredMbps, captureMs, encodeMs, backend)));
     }
 
     private void OnHostClipboardChanged(ClipboardData data)
@@ -373,7 +440,7 @@ public sealed class HostSession
     private IScreenCapture CreateCapture(DisplayInfo display)
     {
 #if ENABLE_DXGI
-        if (_config.PreferHardwareCapture)
+        if (_config.PreferHardwareCapture && !_forceGdi)
         {
             try { return new DesktopDuplicationCapture(display); }
             catch (Exception ex) { _log.LogWarning(ex, "DXGI duplication unavailable; falling back to GDI."); }

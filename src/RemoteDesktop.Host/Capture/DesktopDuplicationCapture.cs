@@ -25,7 +25,10 @@ public sealed class DesktopDuplicationCapture : IScreenCapture
     private readonly ID3D11DeviceContext _context;
     private readonly IDXGIOutputDuplication _duplication;
     private ID3D11Texture2D _staging;
-    private readonly CapturedFrame _frame = new();
+    // Two frames, used alternately, so the session can encode one while the next capture is
+    // already being written (capture/encode pipelining).
+    private readonly CapturedFrame[] _frames = { new(), new() };
+    private int _frameIndex;
     private readonly int _width, _height;
 
     public DisplayInfo Display { get; }
@@ -77,24 +80,27 @@ public sealed class DesktopDuplicationCapture : IScreenCapture
             var map = _context.Map(_staging, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
             try
             {
+                var frame = _frames[_frameIndex];
+                _frameIndex ^= 1;
+
                 int stride = (int)map.RowPitch;
                 int required = stride * _height;
-                if (_frame.Bgra.Length < required) _frame.Bgra = new byte[required];
+                if (frame.Bgra.Length < required) frame.Bgra = new byte[required];
 
                 unsafe
                 {
-                    fixed (byte* dst = _frame.Bgra)
+                    fixed (byte* dst = frame.Bgra)
                     {
                         Buffer.MemoryCopy((void*)map.DataPointer, dst, required, required);
                     }
                 }
 
-                _frame.Width = _width;
-                _frame.Height = _height;
-                _frame.Stride = stride;
-                _frame.TimestampTicks = DateTime.UtcNow.Ticks;
-                _frame.DirtyRects = null; // encoder diffs; DXGI dirty-rect readout is an optional optimization
-                return _frame;
+                frame.Width = _width;
+                frame.Height = _height;
+                frame.Stride = stride;
+                frame.TimestampTicks = DateTime.UtcNow.Ticks;
+                frame.DirtyRects = null; // encoder diffs; DXGI dirty-rect readout is an optional optimization
+                return frame;
             }
             finally
             {

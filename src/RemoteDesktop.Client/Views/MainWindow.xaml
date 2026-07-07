@@ -125,37 +125,8 @@
                                 <TextBlock Text="e.g. relay.example.com:7500 — same server the host registers with."
                                            Foreground="{StaticResource Muted}" FontSize="11" Margin="2,5,0,0"/>
 
-                                <TextBlock Text="FRAME RATE" Style="{StaticResource Label}" Margin="2,16,0,5"/>
-                                <ComboBox x:Name="FpsBox" Width="220" HorizontalAlignment="Left" SelectedIndex="0"
-                                          SelectionChanged="Fps_Changed">
-                                    <ComboBoxItem>Automatic (up to 144 fps)</ComboBoxItem>
-                                    <ComboBoxItem>15 fps</ComboBoxItem>
-                                    <ComboBoxItem>24 fps</ComboBoxItem>
-                                    <ComboBoxItem>30 fps</ComboBoxItem>
-                                    <ComboBoxItem>45 fps</ComboBoxItem>
-                                    <ComboBoxItem>60 fps</ComboBoxItem>
-                                    <ComboBoxItem>75 fps</ComboBoxItem>
-                                    <ComboBoxItem>90 fps</ComboBoxItem>
-                                    <ComboBoxItem>120 fps</ComboBoxItem>
-                                    <ComboBoxItem>144 fps</ComboBoxItem>
-                                </ComboBox>
-
-                                <TextBlock Text="RESOLUTION" Style="{StaticResource Label}" Margin="2,16,0,5"/>
-                                <ComboBox x:Name="ResolutionBox" Width="220" HorizontalAlignment="Left" SelectedIndex="0"
-                                          SelectionChanged="Resolution_Changed">
-                                    <ComboBoxItem>Default (native)</ComboBoxItem>
-                                    <ComboBoxItem>4K (3840×2160)</ComboBoxItem>
-                                    <ComboBoxItem>2560×1600</ComboBoxItem>
-                                    <ComboBoxItem>2560×1440</ComboBoxItem>
-                                    <ComboBoxItem>1920×1080</ComboBoxItem>
-                                    <ComboBoxItem>1680×1050</ComboBoxItem>
-                                    <ComboBoxItem>1366×768</ComboBoxItem>
-                                    <ComboBoxItem>1280×1024</ComboBoxItem>
-                                    <ComboBoxItem>1280×800</ComboBoxItem>
-                                    <ComboBoxItem>1280×720</ComboBoxItem>
-                                    <ComboBoxItem>1024×768</ComboBoxItem>
-                                </ComboBox>
-
+                                <!-- FPS & resolution live in the session toolbar only (applied live),
+                                     so there is exactly one place to control them. -->
                                 <TextBlock Text="IMAGE QUALITY" Style="{StaticResource Label}" Margin="2,16,0,5"/>
                                 <StackPanel Orientation="Horizontal">
                                     <Slider x:Name="QualitySlider" Width="260" Minimum="20" Maximum="95" Value="75"

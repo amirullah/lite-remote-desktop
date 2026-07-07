@@ -16,7 +16,10 @@ public sealed class GdiScreenCapture : IScreenCapture
     private readonly Rectangle _bounds;
     private Bitmap _bitmap;
     private Graphics _graphics;
-    private readonly CapturedFrame _frame = new();
+    // Two frames, used alternately, so the session can encode one while the next capture is
+    // already being written (capture/encode pipelining).
+    private readonly CapturedFrame[] _frames = { new(), new() };
+    private int _frameIndex;
 
     public DisplayInfo Display { get; }
     public string BackendName => "GDI-BitBlt";
@@ -38,16 +41,19 @@ public sealed class GdiScreenCapture : IScreenCapture
             ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
         try
         {
-            int required = data.Stride * _bounds.Height;
-            if (_frame.Bgra.Length < required) _frame.Bgra = new byte[required];
-            Marshal.Copy(data.Scan0, _frame.Bgra, 0, required);
+            var frame = _frames[_frameIndex];
+            _frameIndex ^= 1;
 
-            _frame.Width = _bounds.Width;
-            _frame.Height = _bounds.Height;
-            _frame.Stride = data.Stride;
-            _frame.TimestampTicks = DateTime.UtcNow.Ticks;
-            _frame.DirtyRects = null; // unknown; encoder diffs the whole frame
-            return _frame;
+            int required = data.Stride * _bounds.Height;
+            if (frame.Bgra.Length < required) frame.Bgra = new byte[required];
+            Marshal.Copy(data.Scan0, frame.Bgra, 0, required);
+
+            frame.Width = _bounds.Width;
+            frame.Height = _bounds.Height;
+            frame.Stride = data.Stride;
+            frame.TimestampTicks = DateTime.UtcNow.Ticks;
+            frame.DirtyRects = null; // unknown; encoder diffs the whole frame
+            return frame;
         }
         finally
         {

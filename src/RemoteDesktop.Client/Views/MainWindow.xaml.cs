@@ -45,7 +45,6 @@ public partial class MainWindow : Window
         (1024, 768),
     };
     private IReadOnlyList<DisplayInfo>? _displays;
-    private bool _syncingUi;
 
     public MainWindow()
     {
@@ -192,7 +191,7 @@ public partial class MainWindow : Window
         conn.FrameReceived += (_, _, tiles, _) => _surface?.ApplyFrame(tiles);
         conn.DisplaysReceived += displays => Dispatcher.Invoke(() => PopulateDisplays(displays));
         conn.StatReceived += stat => Dispatcher.Invoke(() =>
-            StatText.Text = $"{stat.Fps} fps · {stat.MbitsPerSecond:F1} Mbit/s · enc {stat.EncodeMs} ms · {stat.EncoderName}");
+            StatText.Text = $"{stat.Fps} fps · {stat.MbitsPerSecond:F1} Mbit/s · cap {stat.RoundTripMs} + enc {stat.EncodeMs} ms · {stat.EncoderName}");
         conn.ClipboardReceived += data => Dispatcher.Invoke(() => _clipboard?.SetClipboard(data));
     }
 
@@ -200,8 +199,6 @@ public partial class MainWindow : Window
     {
         ConnectPanel.Visibility = Visibility.Collapsed;
         SessionPanel.Visibility = Visibility.Visible;
-        SyncCombo(SessionFpsBox, FpsBox.SelectedIndex);
-        SyncCombo(SessionResBox, ResolutionBox.SelectedIndex);
 
         // If a frame already configured the surface before we flipped views, adopt it now.
         if (_surface?.Source != null) RemoteImage.Source = _surface.Source;
@@ -234,10 +231,10 @@ public partial class MainWindow : Window
 
     private SessionSettings BuildSettings()
     {
-        int fpsSel = Math.Clamp(FpsBox.SelectedIndex, 0, FpsChoices.Length - 1);
+        int fpsSel = Math.Clamp(SessionFpsBox.SelectedIndex, 0, FpsChoices.Length - 1);
         int fps = FpsChoices[fpsSel];
         int displayIndex = Math.Max(0, DisplayBox.SelectedIndex);
-        var (resMode, scaledW, scaledH) = ResolveResolution(ResolutionBox.SelectedIndex, displayIndex);
+        var (resMode, scaledW, scaledH) = ResolveResolution(SessionResBox.SelectedIndex, displayIndex);
 
         return _settings = new SessionSettings
         {
@@ -312,7 +309,7 @@ public partial class MainWindow : Window
     private void Display_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (DisplayBox.SelectedIndex < 0) return;
-        var (resMode, scaledW, scaledH) = ResolveResolution(ResolutionBox.SelectedIndex, DisplayBox.SelectedIndex);
+        var (resMode, scaledW, scaledH) = ResolveResolution(SessionResBox.SelectedIndex, DisplayBox.SelectedIndex);
         _settings = _settings with
         {
             DisplayIndex = DisplayBox.SelectedIndex,
@@ -324,48 +321,15 @@ public partial class MainWindow : Window
         PushSettings();
     }
 
-    // The FPS/resolution pickers exist twice (connect form + session toolbar); each change mirrors
-    // into the twin control and pushes the rebuilt settings to the host.
+    private void SessionFps_Changed(object sender, SelectionChangedEventArgs e) => ApplyPerformanceSelection();
 
-    private void Fps_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (_syncingUi || SessionFpsBox is null) return;
-        SyncCombo(SessionFpsBox, FpsBox.SelectedIndex);
-        ApplyPerformanceSelection();
-    }
-
-    private void Resolution_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (_syncingUi || SessionResBox is null) return;
-        SyncCombo(SessionResBox, ResolutionBox.SelectedIndex);
-        ApplyPerformanceSelection();
-    }
-
-    private void SessionFps_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (_syncingUi) return;
-        SyncCombo(FpsBox, SessionFpsBox.SelectedIndex);
-        ApplyPerformanceSelection();
-    }
-
-    private void SessionRes_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (_syncingUi) return;
-        SyncCombo(ResolutionBox, SessionResBox.SelectedIndex);
-        ApplyPerformanceSelection();
-    }
-
-    private void SyncCombo(ComboBox target, int index)
-    {
-        _syncingUi = true;
-        try { if (target.SelectedIndex != index) target.SelectedIndex = index; }
-        finally { _syncingUi = false; }
-    }
+    private void SessionRes_Changed(object sender, SelectionChangedEventArgs e) => ApplyPerformanceSelection();
 
     private void ApplyPerformanceSelection()
     {
+        if (_connection is null) return; // initial XAML selection during startup
         BuildSettings();
-        _connection?.RequestKeyFrame();
+        _connection.RequestKeyFrame();
         PushSettings();
     }
 
