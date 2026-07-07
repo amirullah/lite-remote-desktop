@@ -7,6 +7,9 @@ using RemoteDesktop.Shared.Models;
 using RemoteDesktop.Shared.Net;
 using RemoteDesktop.Shared.Protocol;
 using RemoteDesktop.Shared.Security;
+// WinForms projects inject a global `using System.Windows.Forms;`, whose Message type collides
+// with our protocol Message — pin the alias to the protocol type.
+using Message = RemoteDesktop.Shared.Protocol.Message;
 
 namespace RemoteDesktop.Host.Services;
 
