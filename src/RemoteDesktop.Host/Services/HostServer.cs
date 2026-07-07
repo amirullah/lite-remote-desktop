@@ -48,7 +48,13 @@ public sealed class HostServer : IAsyncDisposable
         _cts = new CancellationTokenSource();
         var bind = IPAddress.Parse(_config.BindAddress);
         _listener = new TcpListener(bind, _config.Port);
-        _listener.Start();
+        // A freshly restarted host can race the previous instance's socket teardown — retry the
+        // bind briefly instead of dying with "address already in use".
+        for (int attempt = 1; ; attempt++)
+        {
+            try { _listener.Start(); break; }
+            catch (SocketException) when (attempt < 5) { Thread.Sleep(400); }
+        }
         _log.LogInformation("Listening on {Bind}:{Port}", _config.BindAddress, _config.Port);
 
         // Register at the relay for ID-based (TeamViewer-style) access, if configured.

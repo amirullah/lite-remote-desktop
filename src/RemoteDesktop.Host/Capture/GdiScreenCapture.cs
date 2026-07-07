@@ -79,7 +79,7 @@ public sealed class GdiScreenCapture : IScreenCapture
         return list;
     }
 
-    private static int QueryRefreshHz(string deviceName)
+    internal static int QueryRefreshHz(string deviceName)
     {
         var dm = new DEVMODE { dmSize = (short)Marshal.SizeOf<DEVMODE>() };
         return EnumDisplaySettings(deviceName, ENUM_CURRENT_SETTINGS, ref dm) ? dm.dmDisplayFrequency : 60;

@@ -11,10 +11,16 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>LiteRemote</AssemblyName>
     <RootNamespace>RemoteDesktop.Client</RootNamespace>
+    <ApplicationIcon>..\..\assets\literemote.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\RemoteDesktop.Shared\RemoteDesktop.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Window/title-bar icon; the exe icon above only covers Explorer and the taskbar. -->
+    <Resource Include="..\..\assets\literemote.ico" Link="Assets\literemote.ico" />
   </ItemGroup>
 
 </Project>

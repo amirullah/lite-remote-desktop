@@ -11,13 +11,15 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>LiteRemoteHost</AssemblyName>
     <RootNamespace>RemoteDesktop.Host</RootNamespace>
+    <ApplicationIcon>..\..\assets\literemote.ico</ApplicationIcon>
     <!-- Small self-contained single file for easy deployment on the controlled PC. -->
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>false</SelfContained>
 
-    <!-- Opt-in DXGI Desktop Duplication fast path. Build with -p:EnableDxgi=true to turn it on.
-         Default is GDI capture, which always compiles and runs everywhere. -->
-    <EnableDxgi Condition="'$(EnableDxgi)' == ''">false</EnableDxgi>
+    <!-- DXGI Desktop Duplication fast path (2-3× faster than GDI). On by default — verified against
+         Vortice 3.6.2 — and the host still falls back to GDI at runtime if duplication is
+         unavailable (RDP session, old GPU). Build with -p:EnableDxgi=false to compile it out. -->
+    <EnableDxgi Condition="'$(EnableDxgi)' == ''">true</EnableDxgi>
     <DefineConstants Condition="'$(EnableDxgi)' == 'true'">$(DefineConstants);ENABLE_DXGI</DefineConstants>
   </PropertyGroup>
 

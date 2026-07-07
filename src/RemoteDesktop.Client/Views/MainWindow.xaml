@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="LiteRemote" Height="760" Width="1120"
+        Icon="/Assets/literemote.ico"
         Background="{StaticResource AppBg}" WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI Variable, Segoe UI" TextOptions.TextRenderingMode="ClearType">
 
@@ -125,22 +126,27 @@
                                            Foreground="{StaticResource Muted}" FontSize="11" Margin="2,5,0,0"/>
 
                                 <TextBlock Text="FRAME RATE" Style="{StaticResource Label}" Margin="2,16,0,5"/>
-                                <StackPanel Orientation="Horizontal">
-                                    <ComboBox x:Name="FpsModeBox" Width="130" SelectedIndex="0" SelectionChanged="FpsMode_Changed">
-                                        <ComboBoxItem>Automatic</ComboBoxItem>
-                                        <ComboBoxItem>Fixed</ComboBoxItem>
-                                    </ComboBox>
-                                    <TextBlock x:Name="FpsValueLabel" Text="Max 144" VerticalAlignment="Center" Margin="12,0,0,0"/>
-                                    <Slider x:Name="FpsSlider" Width="200" Minimum="15" Maximum="144" Value="144"
-                                            VerticalAlignment="Center" Margin="12,0,0,0"
-                                            TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Fps_Changed"/>
-                                </StackPanel>
+                                <ComboBox x:Name="FpsBox" Width="220" HorizontalAlignment="Left" SelectedIndex="0"
+                                          SelectionChanged="Fps_Changed">
+                                    <ComboBoxItem>Automatic (up to 144 fps)</ComboBoxItem>
+                                    <ComboBoxItem>15 fps</ComboBoxItem>
+                                    <ComboBoxItem>24 fps</ComboBoxItem>
+                                    <ComboBoxItem>30 fps</ComboBoxItem>
+                                    <ComboBoxItem>45 fps</ComboBoxItem>
+                                    <ComboBoxItem>60 fps</ComboBoxItem>
+                                    <ComboBoxItem>75 fps</ComboBoxItem>
+                                    <ComboBoxItem>90 fps</ComboBoxItem>
+                                    <ComboBoxItem>120 fps</ComboBoxItem>
+                                    <ComboBoxItem>144 fps</ComboBoxItem>
+                                </ComboBox>
 
                                 <TextBlock Text="RESOLUTION" Style="{StaticResource Label}" Margin="2,16,0,5"/>
-                                <ComboBox x:Name="ResolutionBox" SelectedIndex="0">
+                                <ComboBox x:Name="ResolutionBox" Width="220" HorizontalAlignment="Left" SelectedIndex="0"
+                                          SelectionChanged="Resolution_Changed">
                                     <ComboBoxItem>Native (match remote monitor)</ComboBoxItem>
-                                    <ComboBoxItem>Scale to my window (save bandwidth)</ComboBoxItem>
-                                    <ComboBoxItem>Ask host to match my window size</ComboBoxItem>
+                                    <ComboBoxItem>75% of remote monitor</ComboBoxItem>
+                                    <ComboBoxItem>66% of remote monitor</ComboBoxItem>
+                                    <ComboBoxItem>50% of remote monitor</ComboBoxItem>
                                 </ComboBox>
 
                                 <TextBlock Text="IMAGE QUALITY" Style="{StaticResource Label}" Margin="2,16,0,5"/>
@@ -190,10 +196,28 @@
 
                     <TextBlock DockPanel.Dock="Left" Text="FPS" Foreground="{StaticResource Muted}"
                                VerticalAlignment="Center" Margin="16,0,6,0"/>
-                    <ComboBox x:Name="SessionFpsModeBox" Width="110" DockPanel.Dock="Left" SelectedIndex="0"
-                              SelectionChanged="SessionFpsMode_Changed">
-                        <ComboBoxItem>Automatic</ComboBoxItem>
-                        <ComboBoxItem>Fixed</ComboBoxItem>
+                    <ComboBox x:Name="SessionFpsBox" Width="100" DockPanel.Dock="Left" SelectedIndex="0"
+                              SelectionChanged="SessionFps_Changed">
+                        <ComboBoxItem>Auto</ComboBoxItem>
+                        <ComboBoxItem>15</ComboBoxItem>
+                        <ComboBoxItem>24</ComboBoxItem>
+                        <ComboBoxItem>30</ComboBoxItem>
+                        <ComboBoxItem>45</ComboBoxItem>
+                        <ComboBoxItem>60</ComboBoxItem>
+                        <ComboBoxItem>75</ComboBoxItem>
+                        <ComboBoxItem>90</ComboBoxItem>
+                        <ComboBoxItem>120</ComboBoxItem>
+                        <ComboBoxItem>144</ComboBoxItem>
+                    </ComboBox>
+
+                    <TextBlock DockPanel.Dock="Left" Text="Res" Foreground="{StaticResource Muted}"
+                               VerticalAlignment="Center" Margin="16,0,6,0"/>
+                    <ComboBox x:Name="SessionResBox" Width="100" DockPanel.Dock="Left" SelectedIndex="0"
+                              SelectionChanged="SessionRes_Changed">
+                        <ComboBoxItem>Native</ComboBoxItem>
+                        <ComboBoxItem>75%</ComboBoxItem>
+                        <ComboBoxItem>66%</ComboBoxItem>
+                        <ComboBoxItem>50%</ComboBoxItem>
                     </ComboBox>
 
                     <Button Content="Ctrl+Alt+Del" Style="{StaticResource Ghost}" DockPanel.Dock="Left" Margin="16,0,0,0" Click="Cad_Click"/>

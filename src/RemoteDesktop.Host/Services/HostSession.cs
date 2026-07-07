@@ -28,6 +28,7 @@ public sealed class HostSession
     private volatile SessionSettings _settings = new();
     private volatile bool _keyFrameRequested = true;
     private volatile bool _running = true;
+    private volatile bool _inputActivity;
 
     private IScreenCapture? _capture;
     private InputInjector? _injector;
@@ -163,15 +164,19 @@ public sealed class HostSession
                 // Remote input is always injected; "lock host input" blocks the *local* user instead
                 // (handled by HostPrivacyService), so these must not be gated on LockHostInput.
                 case MessageType.MouseMove:
+                    _inputActivity = true;
                     _injector?.MouseMove(PayloadCodec.ReadMouseMove(msg.Span));
                     break;
                 case MessageType.MouseButton:
+                    _inputActivity = true;
                     _injector?.MouseButton(PayloadCodec.ReadMouseButton(msg.Span));
                     break;
                 case MessageType.MouseWheel:
+                    _inputActivity = true;
                     _injector?.MouseWheel(PayloadCodec.ReadMouseWheel(msg.Span));
                     break;
                 case MessageType.KeyEvent:
+                    _inputActivity = true;
                     _injector?.Key(PayloadCodec.ReadKey(msg.Span));
                     break;
 
@@ -218,6 +223,7 @@ public sealed class HostSession
     private void CaptureLoop(CancellationToken ct)
     {
         var encoder = new JpegTileEncoder();
+        var scaler = new FrameScaler();
         uint frameId = 0;
         int idleFrames = 0;
         var sw = new Stopwatch();
@@ -232,10 +238,19 @@ public sealed class HostSession
                 var adaptive = _adaptive;
                 if (capture is null || adaptive is null) { Thread.Sleep(10); continue; }
 
+                // Remote input means the user is interacting — cancel any idle backoff immediately
+                // so the first visual response isn't delayed by a sleeping capture loop.
+                if (_inputActivity) { _inputActivity = false; idleFrames = 0; }
+
                 sw.Restart();
                 var frame = capture.Capture(timeoutMs: 100);
                 if (frame is null || frame.IsEmpty)
                     continue; // nothing changed; loop straight back for the next event
+
+                // Client asked for a reduced stream resolution — shrink before encoding.
+                var s = _settings;
+                if (s.ResolutionMode == ResolutionMode.Scaled && s.ScaledWidth > 0 && s.ScaledHeight > 0)
+                    frame = scaler.Scale(frame, s.ScaledWidth, s.ScaledHeight);
 
                 // Announce geometry the first time / whenever it changes.
                 if (announced is null || announced.Width != frame.Width || announced.Height != frame.Height)
@@ -271,6 +286,7 @@ public sealed class HostSession
                 {
                     System.Buffers.ArrayPool<byte>.Shared.Return(frameMsg.Payload);
                     _keyFrameRequested = true;
+                    adaptive.NotifyBackpressure();
                 }
 
                 int encodeMs = (int)sw.ElapsedMilliseconds;
@@ -294,6 +310,7 @@ public sealed class HostSession
         }
 
         encoder.Dispose();
+        scaler.Dispose();
     }
 
     private static void PaceFrame(Stopwatch sw, AdaptiveController adaptive)

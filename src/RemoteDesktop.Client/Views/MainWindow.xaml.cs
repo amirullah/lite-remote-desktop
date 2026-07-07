@@ -26,6 +26,13 @@ public partial class MainWindow : Window
     private bool _fullscreen;
     private WindowState _preFullscreenState;
 
+    // Index 0 is "Automatic"; anything else is a fixed frame-rate choice.
+    private static readonly int[] FpsChoices = { 0, 15, 24, 30, 45, 60, 75, 90, 120, 144 };
+    // Fraction of the remote monitor's native size the stream should use.
+    private static readonly double[] ResChoices = { 1.0, 0.75, 0.66, 0.50 };
+    private IReadOnlyList<DisplayInfo>? _displays;
+    private bool _syncingUi;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -179,6 +186,8 @@ public partial class MainWindow : Window
     {
         ConnectPanel.Visibility = Visibility.Collapsed;
         SessionPanel.Visibility = Visibility.Visible;
+        SyncCombo(SessionFpsBox, FpsBox.SelectedIndex);
+        SyncCombo(SessionResBox, ResolutionBox.SelectedIndex);
 
         // If a frame already configured the surface before we flipped views, adopt it now.
         if (_surface?.Source != null) RemoteImage.Source = _surface.Source;
@@ -209,19 +218,43 @@ public partial class MainWindow : Window
 
     // ---------------- settings plumbing ----------------
 
-    private SessionSettings BuildSettings() => _settings = new SessionSettings
+    private SessionSettings BuildSettings()
     {
-        FrameRateMode = FpsModeBox.SelectedIndex == 1 ? FrameRateMode.Fixed : FrameRateMode.Auto,
-        TargetFps = (int)FpsSlider.Value,
-        MaxFps = (int)FpsSlider.Value,
-        ResolutionMode = (ResolutionMode)ResolutionBox.SelectedIndex,
-        DisplayIndex = Math.Max(0, DisplayBox.SelectedIndex),
-        Quality = (int)QualitySlider.Value,
-        ClipboardSync = ClipboardCheck.IsChecked == true,
-        BlankHostScreen = BlankScreenCheck.IsChecked == true,
-        LockHostInput = LockInputCheck.IsChecked == true,
-        PreferredCodec = VideoCodec.JpegTiles,
-    };
+        int fpsSel = Math.Clamp(FpsBox.SelectedIndex, 0, FpsChoices.Length - 1);
+        int fps = FpsChoices[fpsSel];
+        int displayIndex = Math.Max(0, DisplayBox.SelectedIndex);
+        var (resMode, scaledW, scaledH) = ResolveResolution(ResolutionBox.SelectedIndex, displayIndex);
+
+        return _settings = new SessionSettings
+        {
+            FrameRateMode = fps == 0 ? FrameRateMode.Auto : FrameRateMode.Fixed,
+            TargetFps = fps == 0 ? 60 : fps,
+            MaxFps = fps == 0 ? 144 : fps,
+            ResolutionMode = resMode,
+            ScaledWidth = scaledW,
+            ScaledHeight = scaledH,
+            DisplayIndex = displayIndex,
+            Quality = (int)QualitySlider.Value,
+            ClipboardSync = ClipboardCheck.IsChecked == true,
+            BlankHostScreen = BlankScreenCheck.IsChecked == true,
+            LockHostInput = LockInputCheck.IsChecked == true,
+            PreferredCodec = VideoCodec.JpegTiles,
+        };
+    }
+
+    /// <summary>
+    /// Turns a percentage choice into concrete stream dimensions for the chosen monitor. Before the
+    /// host's display list arrives the geometry is unknown, so we fall back to native and re-push
+    /// once <see cref="PopulateDisplays"/> runs.
+    /// </summary>
+    private (ResolutionMode Mode, int W, int H) ResolveResolution(int resIndex, int displayIndex)
+    {
+        double ratio = ResChoices[Math.Clamp(resIndex, 0, ResChoices.Length - 1)];
+        if (ratio >= 0.999) return (ResolutionMode.Native, 0, 0);
+        var d = _displays != null && displayIndex >= 0 && displayIndex < _displays.Count ? _displays[displayIndex] : null;
+        if (d is null) return (ResolutionMode.Native, 0, 0);
+        return (ResolutionMode.Scaled, (int)(d.Width * ratio) & ~1, (int)(d.Height * ratio) & ~1);
+    }
 
     private async void PushSettings()
     {
@@ -231,12 +264,20 @@ public partial class MainWindow : Window
 
     private void PopulateDisplays(IReadOnlyList<DisplayInfo> displays)
     {
+        _displays = displays;
         DisplayBox.SelectionChanged -= Display_Changed;
         DisplayBox.Items.Clear();
         foreach (var d in displays)
             DisplayBox.Items.Add($"#{d.Index} {d.Width}×{d.Height}{(d.IsPrimary ? " (primary)" : "")}");
         DisplayBox.SelectedIndex = Math.Min(_settings.DisplayIndex, displays.Count - 1);
         DisplayBox.SelectionChanged += Display_Changed;
+
+        // Percentage resolutions need the real monitor geometry, which only just arrived.
+        if (ResolutionBox.SelectedIndex > 0)
+        {
+            BuildSettings();
+            PushSettings();
+        }
     }
 
     // ---------------- UI event handlers ----------------
@@ -263,19 +304,6 @@ public partial class MainWindow : Window
         if (dlg.ShowDialog() == true) VpnProfileBox.Text = dlg.FileName;
     }
 
-    private void FpsMode_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (FpsValueLabel is null) return;
-        bool fixedMode = FpsModeBox.SelectedIndex == 1;
-        FpsValueLabel.Text = fixedMode ? "Target" : "Max";
-    }
-
-    private void Fps_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (FpsValueLabel is null) return;
-        FpsValueLabel.Text = $"{(FpsModeBox.SelectedIndex == 1 ? "Target" : "Max")} {(int)e.NewValue}";
-    }
-
     private void Quality_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (QualityLabel != null) QualityLabel.Text = ((int)e.NewValue).ToString();
@@ -284,17 +312,60 @@ public partial class MainWindow : Window
     private void Display_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (DisplayBox.SelectedIndex < 0) return;
-        _settings = _settings with { DisplayIndex = DisplayBox.SelectedIndex };
+        var (resMode, scaledW, scaledH) = ResolveResolution(ResolutionBox.SelectedIndex, DisplayBox.SelectedIndex);
+        _settings = _settings with
+        {
+            DisplayIndex = DisplayBox.SelectedIndex,
+            ResolutionMode = resMode,
+            ScaledWidth = scaledW,
+            ScaledHeight = scaledH,
+        };
         _connection?.RequestKeyFrame();
         PushSettings();
     }
 
-    private void SessionFpsMode_Changed(object sender, SelectionChangedEventArgs e)
+    // The FPS/resolution pickers exist twice (connect form + session toolbar); each change mirrors
+    // into the twin control and pushes the rebuilt settings to the host.
+
+    private void Fps_Changed(object sender, SelectionChangedEventArgs e)
     {
-        _settings = _settings with
-        {
-            FrameRateMode = SessionFpsModeBox.SelectedIndex == 1 ? FrameRateMode.Fixed : FrameRateMode.Auto,
-        };
+        if (_syncingUi || SessionFpsBox is null) return;
+        SyncCombo(SessionFpsBox, FpsBox.SelectedIndex);
+        ApplyPerformanceSelection();
+    }
+
+    private void Resolution_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingUi || SessionResBox is null) return;
+        SyncCombo(SessionResBox, ResolutionBox.SelectedIndex);
+        ApplyPerformanceSelection();
+    }
+
+    private void SessionFps_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingUi) return;
+        SyncCombo(FpsBox, SessionFpsBox.SelectedIndex);
+        ApplyPerformanceSelection();
+    }
+
+    private void SessionRes_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingUi) return;
+        SyncCombo(ResolutionBox, SessionResBox.SelectedIndex);
+        ApplyPerformanceSelection();
+    }
+
+    private void SyncCombo(ComboBox target, int index)
+    {
+        _syncingUi = true;
+        try { if (target.SelectedIndex != index) target.SelectedIndex = index; }
+        finally { _syncingUi = false; }
+    }
+
+    private void ApplyPerformanceSelection()
+    {
+        BuildSettings();
+        _connection?.RequestKeyFrame();
         PushSettings();
     }
 

@@ -160,7 +160,7 @@ public sealed class DesktopDuplicationCapture : IScreenCapture
                             X: r.Left, Y: r.Top,
                             Width: r.Right - r.Left, Height: r.Bottom - r.Top,
                             IsPrimary: r.Left == 0 && r.Top == 0,
-                            RefreshHz: 60));
+                            RefreshHz: GdiScreenCapture.QueryRefreshHz(d.DeviceName)));
                     }
                 }
             }

@@ -1,6 +1,6 @@
+using System.Collections.Concurrent;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.Runtime.InteropServices;
 using RemoteDesktop.Shared.Protocol;
 
 namespace RemoteDesktop.Host.Capture;
@@ -11,35 +11,41 @@ namespace RemoteDesktop.Host.Capture;
 /// bit of text) that's a few KB per frame instead of multiple MB — which is what makes the whole
 /// thing feel instant even without a hardware video encoder.
 ///
-/// This class is single-threaded per session and reuses buffers aggressively to stay allocation-light.
+/// The diff pass is a sequential memory sweep (fast), but JPEG compression is CPU-bound, so changed
+/// tiles are encoded in parallel across cores with per-thread scratch bitmaps. That keeps keyframes
+/// and heavy motion (video, window drags) at a fraction of the single-threaded cost.
 /// </summary>
 public sealed class JpegTileEncoder : IDisposable
 {
     public int TileSize { get; }
 
     private readonly ImageCodecInfo _jpegCodec;
-    private readonly EncoderParameters _params;
-    private long _qualityHandle;
+    private int _quality;
 
     private byte[] _previous = Array.Empty<byte>();
     private int _prevStride;
     private int _width, _height;
 
+    // Per-thread scratch state so Parallel.For never contends: each worker owns a bitmap per tile
+    // geometry plus a reusable stream. GDI+ is safe as long as threads touch distinct objects.
+    private sealed class Scratch
+    {
+        public readonly Dictionary<int, Bitmap> Bitmaps = new();
+        public readonly MemoryStream Stream = new(16 * 1024);
+        public EncoderParameters? Params;
+        public int ParamsQuality = -1;
+    }
+
+    private readonly ConcurrentBag<Scratch> _scratchPool = new();
+
     public JpegTileEncoder(int tileSize = 128)
     {
         TileSize = tileSize;
         _jpegCodec = ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
-        _params = new EncoderParameters(1);
-        SetQuality(75);
+        _quality = 75;
     }
 
-    public void SetQuality(int quality)
-    {
-        quality = Math.Clamp(quality, 1, 100);
-        _params.Param[0]?.Dispose();
-        _params.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)quality);
-        _qualityHandle = quality;
-    }
+    public void SetQuality(int quality) => _quality = Math.Clamp(quality, 1, 100);
 
     /// <summary>
     /// Diff <paramref name="frame"/> against the previously encoded state and return the changed tiles.
@@ -60,10 +66,10 @@ public sealed class JpegTileEncoder : IDisposable
             _previous = new byte[frame.Stride * frame.Height];
         }
 
-        var tiles = new List<Tile>();
+        // Pass 1 — sequential diff sweep to find dirty tiles (memory-bandwidth bound, ~1-2 ms/1080p).
+        var dirty = new List<(int X, int Y, int W, int H)>();
         int cols = (frame.Width + TileSize - 1) / TileSize;
         int rows = (frame.Height + TileSize - 1) / TileSize;
-
         for (int ty = 0; ty < rows; ty++)
         {
             int y = ty * TileSize;
@@ -72,17 +78,43 @@ public sealed class JpegTileEncoder : IDisposable
             {
                 int x = tx * TileSize;
                 int tw = Math.Min(TileSize, frame.Width - x);
-
-                if (!keyFrame && !TileChanged(frame, x, y, tw, th))
-                    continue;
-
-                var jpeg = EncodeTile(frame, x, y, tw, th);
-                tiles.Add(new Tile((ushort)x, (ushort)y, (ushort)tw, (ushort)th, jpeg));
-                CopyTileToPrevious(frame, x, y, tw, th);
+                if (keyFrame || TileChanged(frame, x, y, tw, th))
+                    dirty.Add((x, y, tw, th));
             }
         }
+        if (dirty.Count == 0) return new List<Tile>();
 
-        return tiles;
+        // Pass 2 — parallel JPEG encode of dirty tiles (CPU bound; scales with cores).
+        var encoded = new Tile[dirty.Count];
+        int quality = _quality;
+        if (dirty.Count <= 2)
+        {
+            for (int i = 0; i < dirty.Count; i++) encoded[i] = EncodeOne(frame, dirty[i], quality);
+        }
+        else
+        {
+            Parallel.For(0, dirty.Count, i => encoded[i] = EncodeOne(frame, dirty[i], quality));
+        }
+
+        // Pass 3 — remember what we sent (sequential; plain memcpy).
+        foreach (var (x, y, w, h) in dirty)
+            CopyTileToPrevious(frame, x, y, w, h);
+
+        return new List<Tile>(encoded);
+    }
+
+    private Tile EncodeOne(CapturedFrame frame, (int X, int Y, int W, int H) t, int quality)
+    {
+        if (!_scratchPool.TryTake(out var scratch)) scratch = new Scratch();
+        try
+        {
+            var jpeg = EncodeTile(scratch, frame, t.X, t.Y, t.W, t.H, quality);
+            return new Tile((ushort)t.X, (ushort)t.Y, (ushort)t.W, (ushort)t.H, jpeg);
+        }
+        finally
+        {
+            _scratchPool.Add(scratch);
+        }
     }
 
     private unsafe bool TileChanged(CapturedFrame f, int x, int y, int w, int h)
@@ -122,9 +154,24 @@ public sealed class JpegTileEncoder : IDisposable
         }
     }
 
-    private byte[] EncodeTile(CapturedFrame f, int x, int y, int w, int h)
+    private byte[] EncodeTile(Scratch scratch, CapturedFrame f, int x, int y, int w, int h, int quality)
     {
-        using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+        int key = (w << 16) | h;
+        if (!scratch.Bitmaps.TryGetValue(key, out var bmp))
+        {
+            bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+            scratch.Bitmaps[key] = bmp;
+        }
+        if (scratch.Params is null || scratch.ParamsQuality != quality)
+        {
+            scratch.Params?.Param[0]?.Dispose();
+            scratch.Params?.Dispose();
+            var ep = new EncoderParameters(1);
+            ep.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)quality);
+            scratch.Params = ep;
+            scratch.ParamsQuality = quality;
+        }
+
         var data = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
         try
         {
@@ -148,14 +195,21 @@ public sealed class JpegTileEncoder : IDisposable
             bmp.UnlockBits(data);
         }
 
-        using var ms = new MemoryStream(4096);
-        bmp.Save(ms, _jpegCodec, _params);
+        var ms = scratch.Stream;
+        ms.SetLength(0);
+        ms.Position = 0;
+        bmp.Save(ms, _jpegCodec, scratch.Params);
         return ms.ToArray();
     }
 
     public void Dispose()
     {
-        _params.Param[0]?.Dispose();
-        _params.Dispose();
+        while (_scratchPool.TryTake(out var s))
+        {
+            foreach (var bmp in s.Bitmaps.Values) bmp.Dispose();
+            s.Params?.Param[0]?.Dispose();
+            s.Params?.Dispose();
+            s.Stream.Dispose();
+        }
     }
 }

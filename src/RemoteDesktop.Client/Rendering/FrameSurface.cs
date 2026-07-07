@@ -51,12 +51,21 @@ public sealed class FrameSurface
     {
         if (tiles.Count == 0) return;
 
-        var decoded = new List<DecodedTile>(tiles.Count);
-        foreach (var t in tiles)
+        // JPEG decode is CPU-bound; spread big frames (keyframes, motion) across cores.
+        var slots = new DecodedTile?[tiles.Count];
+        if (tiles.Count <= 2)
         {
-            var px = DecodeTile(t, out int stride);
-            if (px != null) decoded.Add(new DecodedTile(t.X, t.Y, t.Width, t.Height, stride, px));
+            for (int i = 0; i < tiles.Count; i++) slots[i] = DecodeSlot(tiles[i]);
         }
+        else
+        {
+            var snapshot = tiles; // avoid closure surprises if the caller reuses the list
+            Parallel.For(0, snapshot.Count, i => slots[i] = DecodeSlot(snapshot[i]));
+        }
+
+        var decoded = new List<DecodedTile>(tiles.Count);
+        foreach (var slot in slots)
+            if (slot is { } d) decoded.Add(d);
         if (decoded.Count == 0) return;
 
         _dispatcher.BeginInvoke(DispatcherPriority.Render, () =>
@@ -77,6 +86,12 @@ public sealed class FrameSurface
                 bmp.Unlock();
             }
         });
+    }
+
+    private static DecodedTile? DecodeSlot(in Tile t)
+    {
+        var px = DecodeTile(t, out int stride);
+        return px is null ? null : new DecodedTile(t.X, t.Y, t.Width, t.Height, stride, px);
     }
 
     private static byte[]? DecodeTile(in Tile tile, out int stride)

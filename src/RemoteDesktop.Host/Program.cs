@@ -61,7 +61,7 @@ internal sealed class TrayContext : ApplicationContext
 
         _tray = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = LoadAppIcon(),
             Visible = true,
             Text = "LiteRemote Host",
             ContextMenuStrip = BuildMenu(),
@@ -70,6 +70,20 @@ internal sealed class TrayContext : ApplicationContext
 
         EnsureAuthConfigured();
         StartServer();
+    }
+
+    private static Icon LoadAppIcon()
+    {
+        // The exe carries the LiteRemote icon (ApplicationIcon in the csproj); extract it for the
+        // tray so both stay in sync. Fall back to the stock icon if extraction ever fails.
+        try
+        {
+            return Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
+        }
+        catch
+        {
+            return SystemIcons.Application;
+        }
     }
 
     private ContextMenuStrip BuildMenu()
