@@ -132,7 +132,7 @@ public partial class MainWindow : Window
                 $"First time connecting to {endpoint}.\n\n" +
                 $"Verify this certificate fingerprint matches the one shown on the host " +
                 $"(host tray → Show status):\n\n{fingerprint}\n\nTrust this host?",
-                "Verify host identity", MessageBoxButton.YesNo, MessageBoxImage.Shield) == MessageBoxResult.Yes);
+                "Verify host identity", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes);
 
         conn.StateChanged += (state, msg) => Dispatcher.Invoke(() =>
         {
