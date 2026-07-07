@@ -29,8 +29,11 @@ artifacts/
 *.nupkg
 *.snupkg
 
-# Publish
+# Publish / paket lokal (artefak biner tidak di-push — build sendiri dengan
+# build-installer.ps1 atau unduh dari GitHub Releases)
 publish/
+dist/
+installer/output/
 *.publishsettings
 
 # Secrets / local config
