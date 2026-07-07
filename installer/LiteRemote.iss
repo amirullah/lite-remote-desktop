@@ -41,8 +41,9 @@ Name: "hostautostart"; Description: "Start the LiteRemote Host automatically at 
 Name: "hostfirewall"; Description: "Add a Windows Firewall rule to allow incoming host connections (port 7443)"; GroupDescription: "Host options:"; Flags: unchecked
 
 [Files]
-Source: "publish\client\*"; DestDir: "{app}\client"; Flags: recursesubdirs ignoreversion
-Source: "publish\host\*";   DestDir: "{app}\host";   Flags: recursesubdirs ignoreversion
+; Paths are relative to this .iss file (installer/), while publish/ sits at the repo root.
+Source: "..\publish\client\*"; DestDir: "{app}\client"; Flags: recursesubdirs ignoreversion
+Source: "..\publish\host\*";   DestDir: "{app}\host";   Flags: recursesubdirs ignoreversion
 
 [Icons]
 Name: "{group}\LiteRemote (Viewer)"; Filename: "{app}\client\{#ClientExe}"
