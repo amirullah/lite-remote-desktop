@@ -135,30 +135,7 @@ public sealed class HostServer : IAsyncDisposable
         await session.RunAsync(sessionCts.Token).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Serve one client over any duplex stream — a direct TCP connection or a relay-spliced pipe.
-    /// The TLS handshake, pinned certificate, and auth flow are identical either way.
-    /// </summary>
-    public async Task ServeStreamAsync(Stream network, string remoteDesc, CancellationToken? token = null)
-    {
-        var ct = token ?? _cts?.Token ?? CancellationToken.None;
-        try
-        {
-            var ssl = new SslStream(network, leaveInnerStreamOpen: false);
-            var options = new SslServerAuthenticationOptions
-            {
-                ServerCertificate = _certificate,
-                ClientCertificateRequired = false,
-                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
-                CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
-            };
-            await ssl.AuthenticateAsServerAsync(options, ct).ConfigureAwait(false);
-            _log.LogInformation("TLS established with {Remote} ({Protocol})", remoteDesc, ssl.SslProtocol);
-
-            // Evict any existing controller — single-seat by default.
-            _currentCts?.Cancel();
-
-            var sessionCts = CancellationT
+    public async ValueTask DisposeAsync()
     {
         _cts?.Cancel();
         _currentCts?.Cancel();
