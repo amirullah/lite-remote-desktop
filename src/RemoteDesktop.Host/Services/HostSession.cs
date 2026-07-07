@@ -30,6 +30,8 @@ public sealed class HostSession
     private volatile bool _running = true;
     private volatile bool _inputActivity;
     private volatile bool _forceGdi; // set when DXGI proves slower than GDI (virtual GPUs)
+    private Thread? _captureThread;
+    private volatile IReadOnlyList<DisplayInfo> _displays = Array.Empty<DisplayInfo>();
 
     private IScreenCapture? _capture;
     private InputInjector? _injector;
@@ -81,7 +83,19 @@ public sealed class HostSession
         finally
         {
             _running = false;
-            _capture?.Dispose();
+            // The capture loop owns every capture object: disposing one here while a capture call
+            // is still in flight on the pipeline thread crashes the whole process inside the
+            // driver (observed with DXGI duplication). Wait for the loop to wind down instead —
+            // it drains its in-flight capture and disposes everything on its way out.
+            if (_captureThread != null)
+            {
+                if (!_captureThread.Join(3000))
+                    _log.LogWarning("Capture thread did not exit in time; leaving cleanup to process teardown.");
+            }
+            else
+            {
+                _capture?.Dispose();
+            }
             if (_clipboard != null) { _clipboard.ClipboardChanged -= OnHostClipboardChanged; _clipboard.Dispose(); }
             _privacy?.Dispose();
         }
@@ -152,10 +166,12 @@ public sealed class HostSession
                     var newSettings = PayloadCodec.ReadSettings(msg.Span);
                     ApplySettings(newSettings, displays);
                     _adaptive?.UpdateSettings(newSettings);
-                    // (Re)start the capture thread on the first settings or a display change.
+                    // Start the capture thread on the first settings message. It creates and swaps
+                    // capture objects itself — single-threaded ownership, no cross-thread disposal.
                     if (captureThread is null)
                     {
                         captureThread = new Thread(() => CaptureLoop(ct)) { IsBackground = true, Name = "CaptureLoop" };
+                        _captureThread = captureThread;
                         captureThread.Start();
                     }
                     break;
@@ -201,24 +217,13 @@ public sealed class HostSession
     private void ApplySettings(SessionSettings s, IReadOnlyList<DisplayInfo> displays)
     {
         var display = displays.FirstOrDefault(d => d.Index == s.DisplayIndex) ?? displays[0];
-        bool needNewCapture = _capture is null || _capture.Display.Index != display.Index;
 
+        _displays = displays;
         _settings = s;
-        _injector ??= new InputInjector(display);
+        _injector = new InputInjector(display);
+        _adaptive ??= new AdaptiveController(s, display.RefreshHz);
         _privacy?.Apply(s.LockHostInput, s.BlankHostScreen);
-
-        if (needNewCapture)
-        {
-            // Build the replacement before retiring the old one so the capture thread never sees a
-            // null gap (it may still catch a disposed-object race, which CaptureLoop handles).
-            var old = _capture;
-            _adaptive = new AdaptiveController(s, display.RefreshHz);
-            _injector = new InputInjector(display);
-            _capture = CreateCapture(display);
-            _keyFrameRequested = true;
-            old?.Dispose();
-            _log.LogInformation("Capturing {Display} via {Backend}", display.DeviceName, _capture.BackendName);
-        }
+        // Capture creation and display switching happen inside CaptureLoop, which owns the objects.
     }
 
     // ---------------- capture + encode thread ----------------
@@ -244,10 +249,38 @@ public sealed class HostSession
         double captureEmaMs = 0;
         int captureSamples = 0;
 
+        // Wait for an in-flight pipelined capture to finish. Must run before disposing the capture
+        // object it uses — tearing a capture down mid-call crashes inside the driver.
+        void DrainPending()
+        {
+            try { pendingCapture?.GetAwaiter().GetResult(); } catch { }
+            pendingCapture = null;
+            pendingOwner = null;
+        }
+
         while (_running && !ct.IsCancellationRequested)
         {
             try
             {
+                // Create or swap the capture for the requested display — only this thread ever
+                // creates or disposes capture objects.
+                var settings = _settings;
+                var displays = _displays;
+                if (displays.Count == 0) { Thread.Sleep(10); continue; }
+                var wantDisplay = displays.FirstOrDefault(d => d.Index == settings.DisplayIndex) ?? displays[0];
+                if (_capture is null || _capture.Display.Index != wantDisplay.Index)
+                {
+                    DrainPending();
+                    _capture?.Dispose();
+                    _capture = CreateCapture(wantDisplay);
+                    _adaptive = new AdaptiveController(settings, wantDisplay.RefreshHz);
+                    captureEmaMs = 0;
+                    captureSamples = 0;
+                    _keyFrameRequested = true;
+                    announced = null;
+                    _log.LogInformation("Capturing {Display} via {Backend}", wantDisplay.DeviceName, _capture.BackendName);
+                }
+
                 var capture = _capture;
                 var adaptive = _adaptive;
                 if (capture is null || adaptive is null) { Thread.Sleep(10); continue; }
@@ -352,11 +385,10 @@ public sealed class HostSession
                             "DXGI capture averages {Ms:F0} ms — slow virtual GPU readback; switching to GDI.",
                             captureEmaMs);
                         _forceGdi = true;
+                        DrainPending();
                         var display = capture.Display;
-                        _capture = CreateCapture(display);
                         capture.Dispose();
-                        pendingCapture = null;
-                        pendingOwner = null;
+                        _capture = CreateCapture(display);
                         captureEmaMs = 0;
                         captureSamples = 0;
                         _keyFrameRequested = true;
@@ -376,12 +408,15 @@ public sealed class HostSession
                 _log.LogWarning(ex, "Capture iteration error; recovering.");
                 announced = null;
                 _keyFrameRequested = true;
-                pendingCapture = null; // may belong to a capture disposed under us
-                pendingOwner = null;
+                DrainPending();
                 Thread.Sleep(50);
             }
         }
 
+        // Session over — drain the in-flight capture, then dispose everything this thread owns.
+        DrainPending();
+        _capture?.Dispose();
+        _capture = null;
         encoder.Dispose();
         scaler.Dispose();
     }

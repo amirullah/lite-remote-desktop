@@ -31,6 +31,11 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
 UninstallDisplayIcon={app}\{#ClientExe}
 PrivilegesRequired=admin
+; Restart Manager keeps flagging unrelated processes (antivirus hooks like "McAfee Framework
+; Host") as "using our files", stalling the install. We close our own processes explicitly in
+; PrepareToInstall instead, so the detection is unnecessary.
+CloseApplications=no
+RestartApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -66,4 +71,32 @@ Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""LiteRemote 
 Filename: "{app}\client\{#ClientExe}"; Description: "Launch LiteRemote viewer"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""LiteRemote Host"""; Flags: runhidden
+Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""LiteRemote Host"""; Flags: runhidden; RunOnceId: "DelFirewallRule"
+
+[Code]
+procedure KillProcess(const ExeName: string);
+var
+  ResultCode: Integer;
+begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM ' + ExeName, '',
+       SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  // Close our own running instances so files can be replaced; ignore everything else.
+  KillProcess('{#ClientExe}');
+  KillProcess('{#HostExe}');
+  Sleep(500);
+  Result := '';
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    KillProcess('{#ClientExe}');
+    KillProcess('{#HostExe}');
+    Sleep(500);
+  end;
+end;
