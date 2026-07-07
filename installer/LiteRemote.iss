@@ -38,7 +38,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut for the LiteRemote viewer"; GroupDescription: "Additional icons:"
 Name: "hostautostart"; Description: "Start the LiteRemote Host automatically at Windows logon (on this PC, so it can be remoted)"; GroupDescription: "Host options:"; Flags: unchecked
-Name: "hostfirewall"; Description: "Add a Windows Firewall rule to allow incoming host connections (port 7443)"; GroupDescription: "Host options:"; Flags: unchecked
+; Checked by default: without this rule, direct (by-address) connections time out and users
+; assume the app is broken. ID/relay mode works either way (outbound only).
+Name: "hostfirewall"; Description: "Add a Windows Firewall rule to allow incoming host connections (port 7443)"; GroupDescription: "Host options:"
 
 [Files]
 ; Paths are relative to this .iss file (installer/), while publish/ sits at the repo root.

@@ -13,8 +13,8 @@
                      Margin="0,-180,-160,0" Opacity="0.20" IsHitTestVisible="False">
                 <Ellipse.Fill>
                     <RadialGradientBrush>
-                        <GradientStop Color="#6D5EF6" Offset="0"/>
-                        <GradientStop Color="#006D5EF6" Offset="1"/>
+                        <GradientStop Color="#2F7CF6" Offset="0"/>
+                        <GradientStop Color="#002F7CF6" Offset="1"/>
                     </RadialGradientBrush>
                 </Ellipse.Fill>
             </Ellipse>
@@ -47,9 +47,9 @@
                             <Border Background="{StaticResource Bg}" CornerRadius="10" Padding="4"
                                     BorderBrush="{StaticResource Stroke}" BorderThickness="1">
                                 <UniformGrid Rows="1" Columns="2">
-                                    <RadioButton x:Name="ModeIdRadio" Style="{StaticResource Segment}"
+                                    <RadioButton x:Name="ModeIdRadio" GroupName="mode" Style="{StaticResource Segment}"
                                                  Content="Connect by ID" IsChecked="True" Checked="Mode_Changed"/>
-                                    <RadioButton x:Name="ModeAddrRadio" Style="{StaticResource Segment}"
+                                    <RadioButton x:Name="ModeAddrRadio" GroupName="mode" Style="{StaticResource Segment}"
                                                  Content="By address" Checked="Mode_Changed"/>
                                 </UniformGrid>
                             </Border>
@@ -82,14 +82,21 @@
 
                             <!-- credentials -->
                             <TextBlock Text="SIGN IN WITH" Style="{StaticResource Label}" Margin="2,18,0,5"/>
-                            <ComboBox x:Name="AuthMethodBox" SelectedIndex="0" SelectionChanged="AuthMethod_Changed">
-                                <ComboBoxItem>Password</ComboBoxItem>
-                                <ComboBoxItem>Google account</ComboBoxItem>
-                            </ComboBox>
+                            <Border Background="{StaticResource Bg}" CornerRadius="10" Padding="4"
+                                    BorderBrush="{StaticResource Stroke}" BorderThickness="1">
+                                <UniformGrid Rows="1" Columns="2">
+                                    <RadioButton x:Name="AuthPasswordRadio" GroupName="auth" Style="{StaticResource Segment}"
+                                                 Content="Password" IsChecked="True" Checked="AuthMethod_Changed"/>
+                                    <RadioButton x:Name="AuthGoogleRadio" GroupName="auth" Style="{StaticResource Segment}"
+                                                 Content="Google account" Checked="AuthMethod_Changed"/>
+                                </UniformGrid>
+                            </Border>
 
-                            <StackPanel x:Name="PasswordArea" Margin="0,12,0,0">
-                                <TextBlock Text="ACCESS PASSWORD" Style="{StaticResource Label}"/>
+                            <StackPanel x:Name="PasswordArea" Margin="0,14,0,0">
+                                <TextBlock Text="HOST ACCESS PASSWORD" Style="{StaticResource Label}"/>
                                 <PasswordBox x:Name="PasswordBox"/>
+                                <TextBlock Foreground="{StaticResource Muted}" FontSize="11.5" Margin="2,6,0,0" TextWrapping="Wrap"
+                                           Text="The password created on the remote computer: LiteRemote Host tray icon → “Set access password”."/>
                             </StackPanel>
                             <StackPanel x:Name="GoogleArea" Margin="0,12,0,0" Visibility="Collapsed">
                                 <TextBlock Text="GOOGLE OAUTH CLIENT ID" Style="{StaticResource Label}"/>

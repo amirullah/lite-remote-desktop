@@ -122,7 +122,7 @@ public partial class MainWindow : Window
 
     private async Task<Credential?> BuildCredentialAsync()
     {
-        if (AuthMethodBox.SelectedIndex == 0)
+        if (AuthPasswordRadio.IsChecked == true)
         {
             var pwd = PasswordBox.Password;
             return string.IsNullOrEmpty(pwd) ? null : new PasswordCredential(pwd);
@@ -155,6 +155,13 @@ public partial class MainWindow : Window
 
         conn.StateChanged += (state, msg) => Dispatcher.Invoke(() =>
         {
+            // Timeouts/refusals are almost always environmental — give the user actionable hints.
+            if (state == ConnectionState.Failed &&
+                (msg.Contains("did not properly respond") || msg.Contains("refused") || msg.Contains("timed out")))
+            {
+                msg += "  Checklist: LiteRemote Host is running on the remote PC, the address/ID is " +
+                       "correct, and TCP port 7443 is allowed through its firewall.";
+            }
             SetStatus(msg);
             if (state is ConnectionState.Disconnected or ConnectionState.Failed)
                 LeaveSession();
@@ -234,10 +241,10 @@ public partial class MainWindow : Window
 
     // ---------------- UI event handlers ----------------
 
-    private void AuthMethod_Changed(object sender, SelectionChangedEventArgs e)
+    private void AuthMethod_Changed(object sender, RoutedEventArgs e)
     {
-        if (PasswordArea is null) return;
-        bool google = AuthMethodBox.SelectedIndex == 1;
+        if (PasswordArea is null || GoogleArea is null) return;
+        bool google = AuthGoogleRadio.IsChecked == true;
         PasswordArea.Visibility = google ? Visibility.Collapsed : Visibility.Visible;
         GoogleArea.Visibility = google ? Visibility.Visible : Visibility.Collapsed;
         if (google && !string.IsNullOrEmpty(_config.GoogleClientId))
