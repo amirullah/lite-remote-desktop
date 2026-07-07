@@ -44,6 +44,11 @@ secrets.json
 *.crt
 !assets/**/*.crt
 
+# Dokumentasi & instruksi kerja pribadi — tetap dipakai lokal, tidak untuk repo publik
+CLAUDE.md
+docs/SESSION-HANDOFF.md
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -1,13 +1,20 @@
-# Builds the LiteRemote installer locally, mirroring what CI does, and drops the result in dist\.
+# Builds the full LiteRemote package set locally, mirroring what CI does, into dist\:
+#   LiteRemote-Setup-<ver>.exe        installer (viewer + host)
+#   LiteRemote-Viewer-<ver>.zip       viewer portabel
+#   LiteRemote-Host-<ver>.zip         host portabel
+#   LiteRemote-Relay-win-<ver>.zip    relay (Windows)
+#   LiteRemote-Relay-linux-<ver>.zip  relay (Linux, untuk VPS)
 #
-#   pwsh -File build-installer.ps1                # -> dist\LiteRemote-Setup-<versi>.exe
+#   pwsh -File build-installer.ps1
 #   pwsh -File build-installer.ps1 -Version 1.2.0
+#   pwsh -File build-installer.ps1 -SkipRelay      # lebih cepat: setup + viewer/host saja
 #
 # Prasyarat: .NET 8 SDK dan Inno Setup 6 (winget install JRSoftware.InnoSetup).
 # Output publish\ dan dist\ sengaja di-gitignore — artefak biner tidak ikut di-push.
 
 param(
-    [string]$Version = "1.2.0"
+    [string]$Version = "1.2.0",
+    [switch]$SkipRelay
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,9 +26,10 @@ function Find-Tool([string[]]$candidates, [string]$hint) {
     return $found
 }
 
+# x64 SDK dulu — beberapa PC punya host x86 di PATH yang tidak berisi SDK.
 $dotnet = Find-Tool @(
-    (Get-Command dotnet -ErrorAction SilentlyContinue)?.Source,
-    "$env:ProgramFiles\dotnet\dotnet.exe"
+    "$env:ProgramFiles\dotnet\dotnet.exe",
+    (Get-Command dotnet -ErrorAction SilentlyContinue)?.Source
 ) ".NET SDK (winget install Microsoft.DotNet.SDK.8)"
 
 $iscc = Find-Tool @(
@@ -46,13 +54,34 @@ Write-Host "== Publish host (tray) =="
     -o "$root\publish\host"
 if ($LASTEXITCODE -ne 0) { throw "Publish host gagal" }
 
+if (-not $SkipRelay) {
+    Write-Host "== Publish relay (Windows & Linux) =="
+    & $dotnet publish "$root\src\RemoteDesktop.Relay\RemoteDesktop.Relay.csproj" `
+        -c Release -r win-x64 --self-contained true `
+        -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugType=none `
+        -o "$root\publish\relay-win"
+    if ($LASTEXITCODE -ne 0) { throw "Publish relay-win gagal" }
+    & $dotnet publish "$root\src\RemoteDesktop.Relay\RemoteDesktop.Relay.csproj" `
+        -c Release -r linux-x64 --self-contained true `
+        -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugType=none `
+        -o "$root\publish\relay-linux"
+    if ($LASTEXITCODE -ne 0) { throw "Publish relay-linux gagal" }
+}
+
 Write-Host "== Build installer (Inno Setup) =="
 & $iscc "/DAppVersion=$Version" "$root\installer\LiteRemote.iss"
 if ($LASTEXITCODE -ne 0) { throw "ISCC gagal" }
 
+Write-Host "== Kemas ke dist\ =="
 New-Item -ItemType Directory -Force "$root\dist" | Out-Null
-$setup = Get-ChildItem "$root\installer\output\LiteRemote-Setup-$Version.exe"
-Move-Item $setup.FullName "$root\dist\" -Force
+Move-Item "$root\installer\output\LiteRemote-Setup-$Version.exe" "$root\dist\" -Force
+Compress-Archive -Path "$root\publish\client\*" -DestinationPath "$root\dist\LiteRemote-Viewer-$Version.zip" -Force
+Compress-Archive -Path "$root\publish\host\*"   -DestinationPath "$root\dist\LiteRemote-Host-$Version.zip" -Force
+if (-not $SkipRelay) {
+    Compress-Archive -Path "$root\publish\relay-win\*"   -DestinationPath "$root\dist\LiteRemote-Relay-win-$Version.zip" -Force
+    Compress-Archive -Path "$root\publish\relay-linux\*" -DestinationPath "$root\dist\LiteRemote-Relay-linux-$Version.zip" -Force
+}
 
 Write-Host ""
-Write-Host "Selesai: dist\$($setup.Name)" -ForegroundColor Green
+Write-Host "Selesai — isi dist\:" -ForegroundColor Green
+Get-ChildItem "$root\dist" | ForEach-Object { "  {0}  {1:N1} MB" -f $_.Name, ($_.Length / 1MB) }
