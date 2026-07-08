@@ -44,7 +44,9 @@ public sealed class RemoteConnection : IAsyncDisposable
     /// Called on first-ever connection to an endpoint. Return true to trust and pin the fingerprint.
     /// This is the user's out-of-band verification step (they compare it to the host's tray dialog).
     /// </summary>
-    public Func<string, string, bool>? ConfirmFingerprint;
+    /// <summary>(endpoint, prettyFingerprint, certificateChanged) → trust? Called on first use and when
+    /// a previously-pinned certificate changed.</summary>
+    public Func<string, string, bool, bool>? ConfirmFingerprint;
 
     public RemoteConnection(PinStore pins) => _pins = pins;
 
@@ -159,17 +161,20 @@ public sealed class RemoteConnection : IAsyncDisposable
         return _pins.Check(endpoint, fingerprint) switch
         {
             PinCheck.Match => true,
-            PinCheck.Mismatch => false, // possible MITM — refuse
-            PinCheck.FirstUse => ConfirmAndPin(endpoint, fingerprint),
+            // A changed cert is usually benign (host reinstalled, or the IP now belongs to a different
+            // machine via DHCP) — but it can be a MITM, so we don't silently accept it: ask the user,
+            // with a clear "certificate changed" warning, and re-pin only if they confirm.
+            PinCheck.Mismatch => ConfirmAndPin(endpoint, fingerprint, changed: true),
+            PinCheck.FirstUse => ConfirmAndPin(endpoint, fingerprint, changed: false),
             _ => false,
         };
     }
 
-    private bool ConfirmAndPin(string endpoint, string fingerprint)
+    private bool ConfirmAndPin(string endpoint, string fingerprint, bool changed)
     {
         var pretty = CertificateManager.FormatFingerprint(fingerprint);
-        bool trust = ConfirmFingerprint?.Invoke(endpoint, pretty) ?? false;
-        if (trust) _pins.Pin(endpoint, fingerprint);
+        bool trust = ConfirmFingerprint?.Invoke(endpoint, pretty, changed) ?? false;
+        if (trust) _pins.Pin(endpoint, fingerprint); // overwrites the stale pin on re-trust
         return trust;
     }
 

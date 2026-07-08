@@ -57,8 +57,59 @@ public partial class MainWindow : Window
             HostBox.Text = _config.Recent[0].Host;
             PortBox.Text = _config.Recent[0].Port.ToString();
         }
+        PopulateSaved();
         Loaded += (_, _) => _clipboard = new ClipboardBridge(this);
         Closing += (_, _) => Cleanup();
+    }
+
+    private bool _suppressSaved;
+
+    /// <summary>Fill the saved-sessions dropdown from stored connections so the user never re-types.</summary>
+    private void PopulateSaved()
+    {
+        _suppressSaved = true;
+        SavedBox.Items.Clear();
+        foreach (var c in _config.Recent)
+            SavedBox.Items.Add($"{(string.IsNullOrWhiteSpace(c.Label) ? c.Host : c.Label)}   ·   {c.Host}:{c.Port}");
+        SavedRow.Visibility = _config.Recent.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        SavedBox.SelectedIndex = _config.Recent.Count > 0 ? 0 : -1;
+        _suppressSaved = false;
+    }
+
+    private void Saved_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressSaved) return;
+        int i = SavedBox.SelectedIndex;
+        if (i < 0 || i >= _config.Recent.Count) return;
+        HostBox.Text = _config.Recent[i].Host;
+        PortBox.Text = _config.Recent[i].Port.ToString();
+    }
+
+    /// <summary>
+    /// Launch Windows' built-in Remote Desktop (mstsc) to the entered host. RDP authenticates with the
+    /// Windows account (user + password) and can drive the login/lock screen — the one thing
+    /// LiteRemote's own path cannot. Requires "Remote Desktop" enabled on the target (TCP 3389).
+    /// </summary>
+    private void Rdp_Click(object sender, RoutedEventArgs e)
+    {
+        var host = HostBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(host)) { SetStatus("Isi HOST ADDRESS dulu untuk Windows RDP."); return; }
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("mstsc.exe", $"/v:{host}")
+            { UseShellExecute = true });
+            SetStatus($"Membuka Windows Remote Desktop ke {host}…");
+        }
+        catch (Exception ex) { SetStatus($"Gagal membuka Windows RDP: {ex.Message}"); }
+    }
+
+    private void DeleteSaved_Click(object sender, RoutedEventArgs e)
+    {
+        int i = SavedBox.SelectedIndex;
+        if (i < 0 || i >= _config.Recent.Count) return;
+        _config.Recent.RemoveAt(i);
+        _config.Save();
+        PopulateSaved();
     }
 
     private void Mode_Changed(object sender, RoutedEventArgs e)
@@ -172,12 +223,23 @@ public partial class MainWindow : Window
         _surface = new FrameSurface(Dispatcher);
         _surface.SizeChanged += () => RemoteImage.Source = _surface!.Source;
 
-        conn.ConfirmFingerprint = (endpoint, fingerprint) => Dispatcher.Invoke(() =>
-            MessageBox.Show(this,
-                $"First time connecting to {endpoint}.\n\n" +
-                $"Verify this certificate fingerprint matches the one shown on the host " +
-                $"(host tray → Show status):\n\n{fingerprint}\n\nTrust this host?",
-                "Verify host identity", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes);
+        conn.ConfirmFingerprint = (endpoint, fingerprint, changed) => Dispatcher.Invoke(() =>
+        {
+            string body = changed
+                ? $"The security certificate for {endpoint} has CHANGED since you last connected.\n\n" +
+                  $"This is normal if the host was reinstalled, or if this address now belongs to a " +
+                  $"different computer (e.g. after a router/DHCP change). It could, rarely, mean someone " +
+                  $"is intercepting the connection.\n\n" +
+                  $"New fingerprint (compare with the host tray → Show status):\n\n{fingerprint}\n\n" +
+                  $"Trust this certificate and continue?"
+                : $"First time connecting to {endpoint}.\n\n" +
+                  $"Verify this certificate fingerprint matches the one shown on the host " +
+                  $"(host tray → Show status):\n\n{fingerprint}\n\nTrust this host?";
+            return MessageBox.Show(this, body,
+                changed ? "Host certificate changed" : "Verify host identity",
+                MessageBoxButton.YesNo,
+                changed ? MessageBoxImage.Warning : MessageBoxImage.Question) == MessageBoxResult.Yes;
+        });
 
         conn.StateChanged += (state, msg) => Dispatcher.Invoke(() =>
         {
@@ -225,6 +287,7 @@ public partial class MainWindow : Window
         SessionPanel.Visibility = Visibility.Collapsed;
         ConnectPanel.Visibility = Visibility.Visible;
         RemoteImage.Source = null;
+        PopulateSaved(); // reflect a just-added connection
         if (_fullscreen) Fullscreen_Click(this, new RoutedEventArgs());
     }
 

@@ -40,7 +40,7 @@ internal static class H264SelfTest
 
         var pins = new PinStore(AppPaths.PinStore);
         await using var conn = new RemoteConnection(pins);
-        conn.ConfirmFingerprint = (_, _) => true; // loopback test: trust on first use
+        conn.ConfirmFingerprint = (_, _, _) => true; // headless test: trust on first use / change
 
         VideoCodec negotiated = VideoCodec.JpegTiles;
         int cfgW = 0, cfgH = 0;
