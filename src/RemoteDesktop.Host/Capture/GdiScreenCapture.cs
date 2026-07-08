@@ -85,12 +85,11 @@ public sealed class GdiScreenCapture : IScreenCapture
             IntPtr dstDc = _graphics.GetHdc();
             try
             {
-                // HALFTONE resamples (averages) instead of COLORONCOLOR's line-dropping, which looked
-                // blocky/torn when the user picked a reduced resolution. This path only runs when a
-                // smaller target was requested, so the extra cost is on a deliberate quality trade —
-                // and it operates on the small destination, not the full readback.
-                SetStretchBltMode(dstDc, STRETCH_HALFTONE);
-                SetBrushOrgEx(dstDc, 0, 0, IntPtr.Zero); // recommended after selecting HALFTONE
+                // COLORONCOLOR (drops whole lines — cheap) rather than HALFTONE (resamples the whole
+                // source — measured 2-3× slower on weak/virtual GPUs). On capture-bound hosts, speed of
+                // the shrink matters far more than smoothness, and the viewer upscales HighQuality which
+                // already softens the result. This is deliberately the fast path.
+                SetStretchBltMode(dstDc, STRETCH_COLORONCOLOR);
                 StretchBlt(dstDc, 0, 0, _dstW, _dstH,
                            screenDc, _bounds.X, _bounds.Y, _bounds.Width, _bounds.Height, SRCCOPY);
             }

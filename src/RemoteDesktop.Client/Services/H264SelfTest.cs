@@ -18,10 +18,17 @@ namespace RemoteDesktop.Client.Services;
 /// </summary>
 internal static class H264SelfTest
 {
-    public static async Task<int> RunAsync(string host, int port, string password, string codec = "auto")
+    public static async Task<int> RunAsync(string host, int port, string password, string codec = "auto", string res = "")
     {
         var wantCodec = codec.Equals("jpeg", StringComparison.OrdinalIgnoreCase)
             ? VideoCodec.JpegTiles : VideoCodec.H264;
+        int scaledW = 0, scaledH = 0;
+        if (res.Contains('x'))
+        {
+            var parts = res.Split('x');
+            int.TryParse(parts[0], out scaledW);
+            int.TryParse(parts[1], out scaledH);
+        }
         var log = new StringBuilder();
         void Line(string s) { log.AppendLine(s); }
 
@@ -77,7 +84,9 @@ internal static class H264SelfTest
             FrameRateMode = FrameRateMode.Fixed,
             TargetFps = 60,
             MaxFps = 60,
-            ResolutionMode = ResolutionMode.Native,
+            ResolutionMode = scaledW > 0 ? ResolutionMode.Scaled : ResolutionMode.Native,
+            ScaledWidth = scaledW,
+            ScaledHeight = scaledH,
             PreferredCodec = wantCodec,   // auto/h264 -> H.264 (host may fall back); jpeg -> forced JPEG
             Quality = 75,
             ClipboardSync = false,
@@ -94,9 +103,20 @@ internal static class H264SelfTest
             }
             else
             {
-                Line("Terhubung. Mengumpulkan frame selama ~5 detik…");
+                Line("Terhubung. Menggerakkan kursor host untuk memaksa perubahan layar, ukur ~6 detik…");
                 var sw = Stopwatch.StartNew();
-                while (sw.Elapsed < TimeSpan.FromSeconds(5)) await Task.Delay(100);
+                int i = 0;
+                const ushort VK_LWIN = 0x5B;
+                while (sw.Elapsed < TimeSpan.FromSeconds(6))
+                {
+                    // Toggle the Start menu (Win key) — a guaranteed full-screen repaint on any Windows
+                    // host, so we get representative capture/encode numbers. Also proves whether input
+                    // injection reaches the host at all (no repaint => input isn't landing).
+                    i++;
+                    conn.SendKey(new KeyEventData(VK_LWIN, 0, true, true));
+                    conn.SendKey(new KeyEventData(VK_LWIN, 0, false, true));
+                    await Task.Delay(300);
+                }
 
                 Line($"Codec dinegosiasi : {negotiated}");
                 Line($"Geometri          : {cfgW}x{cfgH}");
