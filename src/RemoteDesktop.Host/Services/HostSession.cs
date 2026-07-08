@@ -370,9 +370,12 @@ public sealed class HostSession
                     {
                         int fps = Math.Max(adaptive.CurrentFps, 30);
                         int bitrate = EstimateH264Bitrate(frame.Width, frame.Height, fps);
-                        h264 = H264Encoder.TryCreate(frame.Width, frame.Height, fps, bitrate, preferHardware: true, out string why);
+                        // Streaming requires a hardware encoder; without one (e.g. a VM) we fall back to
+                        // JPEG so the viewer keeps showing video instead of stalling on a slow SW encoder.
+                        h264 = H264Encoder.TryCreate(frame.Width, frame.Height, fps, bitrate,
+                            preferHardware: true, out string why, hardwareOnly: true);
                         if (h264 != null) activeCodec = VideoCodec.H264;
-                        else _log.LogInformation("H.264 requested but unavailable ({Why}); using JPEG tiles.", why);
+                        else _log.LogInformation("H.264 requested but no hardware encoder ({Why}); using JPEG tiles.", why);
                     }
                     announced = new VideoConfig(frame.Width, frame.Height, activeCodec, encoder.TileSize);
                     _channel.TrySend(PayloadCodec.VideoConfigMsg(announced));

@@ -85,9 +85,12 @@ public sealed class GdiScreenCapture : IScreenCapture
             IntPtr dstDc = _graphics.GetHdc();
             try
             {
-                // COLORONCOLOR (fast, drops whole lines) rather than HALFTONE (resamples, slow) —
-                // the readback we save must not be eaten by an expensive scale.
-                SetStretchBltMode(dstDc, STRETCH_COLORONCOLOR);
+                // HALFTONE resamples (averages) instead of COLORONCOLOR's line-dropping, which looked
+                // blocky/torn when the user picked a reduced resolution. This path only runs when a
+                // smaller target was requested, so the extra cost is on a deliberate quality trade —
+                // and it operates on the small destination, not the full readback.
+                SetStretchBltMode(dstDc, STRETCH_HALFTONE);
+                SetBrushOrgEx(dstDc, 0, 0, IntPtr.Zero); // recommended after selecting HALFTONE
                 StretchBlt(dstDc, 0, 0, _dstW, _dstH,
                            screenDc, _bounds.X, _bounds.Y, _bounds.Width, _bounds.Height, SRCCOPY);
             }
@@ -154,11 +157,13 @@ public sealed class GdiScreenCapture : IScreenCapture
 
     private const int ENUM_CURRENT_SETTINGS = -1;
     private const int STRETCH_COLORONCOLOR = 3;
+    private const int STRETCH_HALFTONE = 4;
     private const uint SRCCOPY = 0x00CC0020;
 
     [DllImport("user32.dll")] private static extern IntPtr GetDC(IntPtr hWnd);
     [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
     [DllImport("gdi32.dll")] private static extern int SetStretchBltMode(IntPtr hdc, int mode);
+    [DllImport("gdi32.dll")] private static extern bool SetBrushOrgEx(IntPtr hdc, int x, int y, IntPtr prev);
     [DllImport("gdi32.dll")]
     private static extern bool StretchBlt(IntPtr hdcDest, int xDest, int yDest, int wDest, int hDest,
         IntPtr hdcSrc, int xSrc, int ySrc, int wSrc, int hSrc, uint rop);

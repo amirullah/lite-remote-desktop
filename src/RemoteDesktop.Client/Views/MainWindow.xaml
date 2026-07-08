@@ -163,14 +163,16 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <Border Grid.Row="0" Background="{StaticResource Panel}" BorderBrush="{StaticResource Stroke}"
+            <Border x:Name="SessionToolbar" Grid.Row="0" Background="{StaticResource Panel}" BorderBrush="{StaticResource Stroke}"
                     BorderThickness="0,0,0,1" Padding="12,8">
                 <DockPanel LastChildFill="False">
                     <Border DockPanel.Dock="Left" Width="9" Height="9" CornerRadius="5"
                             Background="{StaticResource Good}" VerticalAlignment="Center" Margin="2,0,10,0"/>
                     <TextBlock DockPanel.Dock="Left" Text="Monitor" Foreground="{StaticResource Muted}"
-                               VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <ComboBox x:Name="DisplayBox" Width="150" DockPanel.Dock="Left" SelectionChanged="Display_Changed"/>
+                               VerticalAlignment="Center" Margin="0,0,6,0"
+                               ToolTip="Layar fisik di PC host yang ditampilkan (bila host punya beberapa monitor). Angka = resolusi asli monitor itu."/>
+                    <ComboBox x:Name="DisplayBox" Width="150" DockPanel.Dock="Left" SelectionChanged="Display_Changed"
+                              ToolTip="Pilih monitor host yang ingin dilihat."/>
 
                     <TextBlock DockPanel.Dock="Left" Text="FPS" Foreground="{StaticResource Muted}"
                                VerticalAlignment="Center" Margin="16,0,6,0"/>
@@ -189,9 +191,12 @@
                     </ComboBox>
 
                     <TextBlock DockPanel.Dock="Left" Text="Res" Foreground="{StaticResource Muted}"
-                               VerticalAlignment="Center" Margin="16,0,6,0"/>
+                               VerticalAlignment="Center" Margin="16,0,6,0"
+                               ToolTip="Perkecil ukuran stream untuk hemat data / koneksi lambat. 'Default' = resolusi asli (paling tajam). Nilai lebih kecil = lebih ringan tapi kurang tajam."/>
                     <ComboBox x:Name="SessionResBox" Width="130" DockPanel.Dock="Left" SelectedIndex="0"
-                              SelectionChanged="SessionRes_Changed">
+                              SelectionChanged="SessionRes_Changed"
+                              ToolTip="Default = tajam (resolusi asli host). Pilih lebih kecil hanya bila koneksi lambat.">
+
                         <ComboBoxItem>Default</ComboBoxItem>
                         <ComboBoxItem>4K (3840×2160)</ComboBoxItem>
                         <ComboBoxItem>2560×1600</ComboBoxItem>
@@ -225,7 +230,7 @@
             </Border>
 
             <Grid Grid.Row="1" x:Name="SurfaceHost" Background="#05060A" ClipToBounds="True">
-                <Image x:Name="RemoteImage" Stretch="Uniform" RenderOptions.BitmapScalingMode="LowQuality"
+                <Image x:Name="RemoteImage" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"
                        SnapsToDevicePixels="True"/>
             </Grid>
         </Grid>

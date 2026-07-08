@@ -363,12 +363,18 @@ public partial class MainWindow : Window
             _preFullscreenState = WindowState;
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;
+            Topmost = true;
+            // A borderless window that is *already* maximized only covers the work area (taskbar stays
+            // visible). Dropping to Normal first forces WPF to recompute the maximized bounds against
+            // the whole monitor, so it now covers the screen edge-to-edge including the taskbar.
+            WindowState = WindowState.Normal;
             WindowState = WindowState.Maximized;
         }
         else
         {
             WindowStyle = WindowStyle.SingleBorderWindow;
             ResizeMode = ResizeMode.CanResize;
+            Topmost = false;
             WindowState = _preFullscreenState;
         }
     }

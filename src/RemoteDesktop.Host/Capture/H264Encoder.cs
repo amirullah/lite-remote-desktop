@@ -46,8 +46,14 @@ internal sealed class H264Encoder : IDisposable
     /// Create an encoder for the given geometry/bitrate, or return null (with a reason) if no usable
     /// H.264 MFT exists — the caller then stays on JPEG tiles.
     /// </summary>
+    /// <param name="hardwareOnly">
+    /// When true, only a hardware (GPU) encoder is accepted; if none exists we return null so the
+    /// caller stays on JPEG. Live streaming passes this — the Microsoft software encoder is too slow
+    /// for a real session (and often produces nothing usable in a VM), and H.264 only pays off with a
+    /// GPU encoder anyway. The bench/self-test pass false so they can still exercise software.
+    /// </param>
     public static H264Encoder? TryCreate(int width, int height, int fps, int bitrateBps,
-        bool preferHardware, out string reason)
+        bool preferHardware, out string reason, bool hardwareOnly = false)
     {
         reason = "";
         width &= ~1; height &= ~1;              // H.264 requires even dimensions
@@ -55,8 +61,10 @@ internal sealed class H264Encoder : IDisposable
 
         MediaFactory.MFStartup(true);
 
-        // Try hardware (async) first when requested, then software (sync).
-        var order = preferHardware
+        // Try hardware (async) first when requested, then software (sync) unless hardware is required.
+        var order = hardwareOnly
+            ? new[] { (true, MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER) }
+            : preferHardware
             ? new[] { (true, MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER),
                       (false, MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_SORTANDFILTER) }
             : new[] { (false, MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_SORTANDFILTER) };
