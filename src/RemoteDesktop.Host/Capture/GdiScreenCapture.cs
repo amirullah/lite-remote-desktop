@@ -8,14 +8,22 @@ namespace RemoteDesktop.Host.Capture;
 
 /// <summary>
 /// GDI BitBlt capture. Universally available — works inside VMs, over RDP, and anywhere the DXGI
-/// duplication path is unavailable. Slower than duplication (CPU copy every frame) but the encoder's
-/// dirty-tile diffing keeps bandwidth low regardless.
+/// duplication path is unavailable.
+///
+/// When the client requests a reduced stream resolution we scale <b>at the source</b> with
+/// <c>StretchBlt</c> instead of grabbing the full screen and shrinking on the CPU afterwards. This
+/// matters enormously inside a VM: the slow part there is moving pixels out of the virtual GPU
+/// framebuffer, and that cost is proportional to how many pixels we read back. Capturing straight
+/// into a 720p buffer instead of a 1080p one cuts that readback ~2× — the single biggest lever for
+/// a VM host, where readback (not encode or network) dominates the frame time.
 /// </summary>
 public sealed class GdiScreenCapture : IScreenCapture
 {
     private readonly Rectangle _bounds;
     private Bitmap _bitmap;
     private Graphics _graphics;
+    private int _dstW, _dstH;         // current destination (capture) size
+    private int _targetW, _targetH;   // requested source-scale target; 0 = native
     // Two frames, used alternately, so the session can encode one while the next capture is
     // already being written (capture/encode pipelining).
     private readonly CapturedFrame[] _frames = { new(), new() };
@@ -28,28 +36,81 @@ public sealed class GdiScreenCapture : IScreenCapture
     {
         Display = display;
         _bounds = new Rectangle(display.X, display.Y, display.Width, display.Height);
-        _bitmap = new Bitmap(_bounds.Width, _bounds.Height, PixelFormat.Format32bppArgb);
+        AllocateDestination(display.Width, display.Height);
+    }
+
+    /// <summary>
+    /// Ask the capturer to read the screen back already scaled to fit within (w,h), preserving
+    /// aspect ratio. Pass (0,0) for native. Cheap to call every frame — it only reallocates when the
+    /// resulting size actually changes.
+    /// </summary>
+    public void SetTargetSize(int w, int h)
+    {
+        _targetW = w;
+        _targetH = h;
+        var (cw, ch) = ResolveCaptureSize();
+        if (cw != _dstW || ch != _dstH) AllocateDestination(cw, ch);
+    }
+
+    private (int W, int H) ResolveCaptureSize()
+    {
+        if (_targetW <= 0 || _targetH <= 0) return (_bounds.Width, _bounds.Height);
+        double k = Math.Min((double)_targetW / _bounds.Width, (double)_targetH / _bounds.Height);
+        if (k >= 0.999) return (_bounds.Width, _bounds.Height);
+        return (Math.Max(2, (int)(_bounds.Width * k) & ~1), Math.Max(2, (int)(_bounds.Height * k) & ~1));
+    }
+
+    private void AllocateDestination(int w, int h)
+    {
+        _graphics?.Dispose();
+        _bitmap?.Dispose();
+        _dstW = w;
+        _dstH = h;
+        _bitmap = new Bitmap(w, h, PixelFormat.Format32bppArgb);
         _graphics = Graphics.FromImage(_bitmap);
     }
 
     public CapturedFrame? Capture(int timeoutMs)
     {
-        // GDI has no change signal, so we always grab; the encoder decides what actually changed.
-        _graphics.CopyFromScreen(_bounds.Location, Point.Empty, _bounds.Size, CopyPixelOperation.SourceCopy);
+        bool scaled = _dstW != _bounds.Width || _dstH != _bounds.Height;
+        if (!scaled)
+        {
+            // 1:1 — the straightforward managed copy.
+            _graphics.CopyFromScreen(_bounds.Location, Point.Empty, _bounds.Size, CopyPixelOperation.SourceCopy);
+        }
+        else
+        {
+            // Scale during the blit so the CPU-visible buffer (and its readback) is only dst-sized.
+            IntPtr screenDc = GetDC(IntPtr.Zero);
+            IntPtr dstDc = _graphics.GetHdc();
+            try
+            {
+                // COLORONCOLOR (fast, drops whole lines) rather than HALFTONE (resamples, slow) —
+                // the readback we save must not be eaten by an expensive scale.
+                SetStretchBltMode(dstDc, STRETCH_COLORONCOLOR);
+                StretchBlt(dstDc, 0, 0, _dstW, _dstH,
+                           screenDc, _bounds.X, _bounds.Y, _bounds.Width, _bounds.Height, SRCCOPY);
+            }
+            finally
+            {
+                _graphics.ReleaseHdc(dstDc);
+                ReleaseDC(IntPtr.Zero, screenDc);
+            }
+        }
 
-        var data = _bitmap.LockBits(new Rectangle(0, 0, _bounds.Width, _bounds.Height),
+        var data = _bitmap.LockBits(new Rectangle(0, 0, _dstW, _dstH),
             ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
         try
         {
             var frame = _frames[_frameIndex];
             _frameIndex ^= 1;
 
-            int required = data.Stride * _bounds.Height;
+            int required = data.Stride * _dstH;
             if (frame.Bgra.Length < required) frame.Bgra = new byte[required];
             Marshal.Copy(data.Scan0, frame.Bgra, 0, required);
 
-            frame.Width = _bounds.Width;
-            frame.Height = _bounds.Height;
+            frame.Width = _dstW;
+            frame.Height = _dstH;
             frame.Stride = data.Stride;
             frame.TimestampTicks = DateTime.UtcNow.Ticks;
             frame.DirtyRects = null; // unknown; encoder diffs the whole frame
@@ -92,6 +153,15 @@ public sealed class GdiScreenCapture : IScreenCapture
     }
 
     private const int ENUM_CURRENT_SETTINGS = -1;
+    private const int STRETCH_COLORONCOLOR = 3;
+    private const uint SRCCOPY = 0x00CC0020;
+
+    [DllImport("user32.dll")] private static extern IntPtr GetDC(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+    [DllImport("gdi32.dll")] private static extern int SetStretchBltMode(IntPtr hdc, int mode);
+    [DllImport("gdi32.dll")]
+    private static extern bool StretchBlt(IntPtr hdcDest, int xDest, int yDest, int wDest, int hDest,
+        IntPtr hdcSrc, int xSrc, int ySrc, int wSrc, int hSrc, uint rop);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern bool EnumDisplaySettings(string? deviceName, int modeNum, ref DEVMODE devMode);

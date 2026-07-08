@@ -32,6 +32,7 @@ public sealed class HostSession
     private volatile bool _forceGdi; // set when DXGI proves slower than GDI (virtual GPUs)
     private Thread? _captureThread;
     private volatile IReadOnlyList<DisplayInfo> _displays = Array.Empty<DisplayInfo>();
+    private int _gdiTargetW, _gdiTargetH; // last source-scale target pushed to the GDI capturer
 
     private IScreenCapture? _capture;
     private InputInjector? _injector;
@@ -276,6 +277,7 @@ public sealed class HostSession
                     _adaptive = new AdaptiveController(settings, wantDisplay.RefreshHz);
                     captureEmaMs = 0;
                     captureSamples = 0;
+                    _gdiTargetW = _gdiTargetH = -1; // force the source-scale target to re-apply
                     _keyFrameRequested = true;
                     announced = null;
                     _log.LogInformation("Capturing {Display} via {Backend}", wantDisplay.DeviceName, _capture.BackendName);
@@ -284,6 +286,24 @@ public sealed class HostSession
                 var capture = _capture;
                 var adaptive = _adaptive;
                 if (capture is null || adaptive is null) { Thread.Sleep(10); continue; }
+
+                // Tell a GDI capturer the desired source-scale target before it grabs (must happen
+                // before the pipelined next-capture is kicked off). No pending capture may be in
+                // flight when we resize its buffers, so drain first if the target actually changes.
+                if (capture is GdiScreenCapture gdi)
+                {
+                    var st = _settings;
+                    bool scale = st.ResolutionMode == ResolutionMode.Scaled && st.ScaledWidth > 0 && st.ScaledHeight > 0;
+                    int tw = scale ? st.ScaledWidth : 0, th = scale ? st.ScaledHeight : 0;
+                    if (tw != _gdiTargetW || th != _gdiTargetH)
+                    {
+                        DrainPending();
+                        gdi.SetTargetSize(tw, th);
+                        _gdiTargetW = tw;
+                        _gdiTargetH = th;
+                        _keyFrameRequested = true;
+                    }
+                }
 
                 // Remote input means the user is interacting — cancel any idle backoff immediately
                 // so the first visual response isn't delayed by a sleeping capture loop.
@@ -319,10 +339,12 @@ public sealed class HostSession
                 if (frame is null || frame.IsEmpty)
                     continue; // nothing changed; loop straight back for the next event
 
-                // Client asked for a reduced stream resolution — fit the frame inside the requested
-                // box preserving aspect ratio (never upscale), then encode the smaller image.
+                // Reduced stream resolution. GDI scales at the source (SetTargetSize below already
+                // told it to), so its frame arrives pre-shrunk and we skip the CPU pass. Other
+                // backends hand back a native frame that we downscale here.
                 var s = _settings;
-                if (s.ResolutionMode == ResolutionMode.Scaled && s.ScaledWidth > 0 && s.ScaledHeight > 0)
+                bool wantScale = s.ResolutionMode == ResolutionMode.Scaled && s.ScaledWidth > 0 && s.ScaledHeight > 0;
+                if (wantScale && capture is not GdiScreenCapture)
                 {
                     double k = Math.Min((double)s.ScaledWidth / frame.Width, (double)s.ScaledHeight / frame.Height);
                     if (k < 0.999)
@@ -391,6 +413,7 @@ public sealed class HostSession
                         _capture = CreateCapture(display);
                         captureEmaMs = 0;
                         captureSamples = 0;
+                        _gdiTargetW = _gdiTargetH = -1; // re-apply source-scale to the new GDI capturer
                         _keyFrameRequested = true;
                         continue;
                     }

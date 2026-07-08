@@ -33,6 +33,11 @@ internal static class Program
                 Console.WriteLine(string.IsNullOrEmpty(cfg.HostId) ? "(no ID — set up relay access)" : cfg.HostId);
                 return;
             }
+            if (args[i] == "--bench-capture")
+            {
+                CaptureBench.Run();
+                return;
+            }
         }
 
         // One host per machine: a second instance would fight over port 7443 and confuse the tray.
