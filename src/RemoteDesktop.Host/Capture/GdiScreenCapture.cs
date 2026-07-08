@@ -73,7 +73,9 @@ public sealed class GdiScreenCapture : IScreenCapture
     public CapturedFrame? Capture(int timeoutMs)
     {
         bool scaled = _dstW != _bounds.Width || _dstH != _bounds.Height;
-        if (!scaled)
+        // Agent mode always takes the raw-blit path so it can pass CAPTUREBLT (grabs layered windows
+        // like the login/lock UI). Managed CopyFromScreen rejects the combined ROP as an invalid enum.
+        if (!scaled && !DesktopFollow.Enabled)
         {
             // 1:1 — the straightforward managed copy.
             _graphics.CopyFromScreen(_bounds.Location, Point.Empty, _bounds.Size, CopyPixelOperation.SourceCopy);
@@ -90,8 +92,9 @@ public sealed class GdiScreenCapture : IScreenCapture
                 // the shrink matters far more than smoothness, and the viewer upscales HighQuality which
                 // already softens the result. This is deliberately the fast path.
                 SetStretchBltMode(dstDc, STRETCH_COLORONCOLOR);
+                uint rop = DesktopFollow.Enabled ? (SRCCOPY | CAPTUREBLT) : SRCCOPY;
                 StretchBlt(dstDc, 0, 0, _dstW, _dstH,
-                           screenDc, _bounds.X, _bounds.Y, _bounds.Width, _bounds.Height, SRCCOPY);
+                           screenDc, _bounds.X, _bounds.Y, _bounds.Width, _bounds.Height, rop);
             }
             finally
             {
@@ -158,6 +161,7 @@ public sealed class GdiScreenCapture : IScreenCapture
     private const int STRETCH_COLORONCOLOR = 3;
     private const int STRETCH_HALFTONE = 4;
     private const uint SRCCOPY = 0x00CC0020;
+    private const uint CAPTUREBLT = 0x40000000; // include layered windows (login/lock UI)
 
     [DllImport("user32.dll")] private static extern IntPtr GetDC(IntPtr hWnd);
     [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);

@@ -1,6 +1,9 @@
 using System.Buffers;
 using System.Diagnostics;
+using System.IO;
 using System.Text;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using RemoteDesktop.Media;
 using RemoteDesktop.Shared;
 using RemoteDesktop.Shared.Models;
@@ -53,9 +56,14 @@ internal static class H264SelfTest
         double gapSumMs = 0, gapMaxMs = 0; int gapCount = 0;
         double freq = Stopwatch.Frequency;
 
+        // A composite of the received frame so we can save a PNG and actually SEE what was captured
+        // (e.g. the login screen). BGRA, top-down, stride = cfgW*4.
+        byte[]? comp = null;
+
         conn.VideoConfigured += cfg =>
         {
             negotiated = cfg.Codec; cfgW = cfg.Width; cfgH = cfg.Height;
+            comp = new byte[cfg.Width * cfg.Height * 4];
         };
         conn.StatReceived += stat => { encoderName = stat.EncoderName; lastStat = stat; };
         conn.FrameReceived += (_, _, tiles, _) =>
@@ -66,14 +74,26 @@ internal static class H264SelfTest
             else { double gap = (now - lastFrameTicks) / freq * 1000; gapSumMs += gap; gapCount++; if (gap > gapMaxMs) gapMaxMs = gap; }
             lastFrameTicks = now;
 
-            if (negotiated != VideoCodec.H264 || tiles.Count == 0) return;
+            if (tiles.Count == 0) return;
             lock (decodeLock)
             {
                 try
                 {
-                    decoder ??= H264Decoder.TryCreate(cfgW, cfgH, 60, out _);
-                    var bgra = decoder?.Decode(tiles[0].Data.ToArray(), out _);
-                    if (bgra != null) { decodedOk++; if (!IsMostlyBlack(bgra)) nonBlack++; }
+                    if (negotiated == VideoCodec.H264)
+                    {
+                        decoder ??= H264Decoder.TryCreate(cfgW, cfgH, 60, out _);
+                        var bgra = decoder?.Decode(tiles[0].Data.ToArray(), out _);
+                        if (bgra != null)
+                        {
+                            decodedOk++;
+                            if (!IsMostlyBlack(bgra)) nonBlack++;
+                            if (comp != null) BlitFull(comp, cfgW, cfgH, bgra, decoder!.Width, decoder!.Height);
+                        }
+                    }
+                    else if (comp != null) // JPEG tiles
+                    {
+                        foreach (var t in tiles) BlitJpeg(comp, cfgW, cfgH, t);
+                    }
                 }
                 catch { /* counted as not-decoded */ }
             }
@@ -147,6 +167,19 @@ internal static class H264SelfTest
                 else Line("(host belum mengirim statistik — layar host mungkin diam)");
                 Line(new string('-', 56));
                 Line("CATATAN: gerakkan sesuatu di layar HOST saat uji agar frame mengalir; layar diam = sedikit frame.");
+                if (comp != null && cfgW > 0)
+                {
+                    try
+                    {
+                        var bs = BitmapSource.Create(cfgW, cfgH, 96, 96, PixelFormats.Bgra32, null, comp, cfgW * 4);
+                        var enc = new PngBitmapEncoder(); enc.Frames.Add(BitmapFrame.Create(bs));
+                        var png = System.IO.Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "lastframe.png");
+                        using var fs = File.Create(png); enc.Save(fs);
+                        Line($"Frame terakhir disimpan: {png}");
+                    }
+                    catch (Exception ex) { Line($"(gagal simpan PNG: {ex.Message})"); }
+                }
                 exit = frames > 0 ? 0 : 2;
             }
         }
@@ -167,6 +200,31 @@ internal static class H264SelfTest
         }
         catch { }
         return exit;
+    }
+
+    /// <summary>Decode one JPEG tile and copy it into the composite at its (X,Y).</summary>
+    private static void BlitJpeg(byte[] comp, int cw, int ch, Tile t)
+    {
+        using var ms = new MemoryStream(t.Data.ToArray(), writable: false);
+        var dec = new JpegBitmapDecoder(ms, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+        BitmapSource fr = dec.Frames[0];
+        if (fr.Format != PixelFormats.Bgra32) fr = new FormatConvertedBitmap(fr, PixelFormats.Bgra32, null, 0);
+        int tw = t.Width, th = t.Height, stride = tw * 4;
+        var px = new byte[stride * th];
+        fr.CopyPixels(px, stride, 0);
+        for (int row = 0; row < th; row++)
+        {
+            int dy = t.Y + row; if (dy >= ch) break;
+            int len = Math.Min(stride, (cw - t.X) * 4);
+            if (len > 0) Array.Copy(px, row * stride, comp, (dy * cw + t.X) * 4, len);
+        }
+    }
+
+    /// <summary>Copy a full decoded H.264 frame (may be macroblock-padded) into the composite, cropped.</summary>
+    private static void BlitFull(byte[] comp, int cw, int ch, byte[] bgra, int dw, int dh)
+    {
+        int copyH = Math.Min(ch, dh), copyW = Math.Min(cw, dw);
+        for (int y = 0; y < copyH; y++) Array.Copy(bgra, y * dw * 4, comp, y * cw * 4, copyW * 4);
     }
 
     private static bool IsMostlyBlack(byte[] bgra)

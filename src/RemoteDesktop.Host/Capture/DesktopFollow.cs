@@ -7,47 +7,64 @@ namespace RemoteDesktop.Host.Capture;
 /// Keeps the calling thread attached to whatever desktop currently has user input — the normal user
 /// desktop, the secure Winlogon desktop (lock/login), or the UAC dimmed desktop. A process running as
 /// SYSTEM on WinSta0 can, by re-attaching here, capture and inject on the login screen the way
-/// TeamViewer/Avica do. In a normal user session this is a harmless no-op (it just stays on Default).
+/// TeamViewer/Avica do. In a normal user session this is a harmless no-op.
 ///
-/// SetThreadDesktop fails if the thread owns any window or DC, so the capture code must call
-/// <see cref="ReattachIfChanged"/> BEFORE it creates its GDI DCs, and recreate the capturer whenever
-/// this reports a switch.
+/// SetThreadDesktop FAILS if the thread owns any window or DC, so the sequence must be:
+///   1. <see cref="PendingChanged"/> — detect a switch (no side effect on the thread).
+///   2. dispose the current capturer (closing its DCs).
+///   3. <see cref="AttachPending"/> — now SetThreadDesktop succeeds.
+///   4. recreate the capturer on the new desktop.
 /// </summary>
 internal static class DesktopFollow
 {
     private static string _current = "";
-    public static string CurrentDesktop => _current;
+    private static string _pendingName = "";
+    private static IntPtr _currentHandle = IntPtr.Zero;
+    private static IntPtr _pendingHandle = IntPtr.Zero;
 
     /// <summary>Enabled only in --agent mode; a no-op otherwise so the interactive tray host is unchanged.</summary>
     public static bool Enabled;
 
+    public static string CurrentDesktop => _current;
+
     /// <summary>
-    /// If the input desktop changed since the last call (or this is the first call), attach the current
-    /// thread to it and return true — the caller should then (re)create its capture on the new desktop.
+    /// True when the input desktop differs from the one this thread is on. Opens (but does not yet
+    /// switch to) the new desktop; call <see cref="AttachPending"/> after closing the current DCs.
     /// </summary>
-    public static bool ReattachIfChanged()
+    public static bool PendingChanged()
     {
         if (!Enabled) return false;
-        IntPtr hDesk = OpenInputDesktop(0, true,
+        IntPtr h = OpenInputDesktop(0, true,
             DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS | DESKTOP_CREATEWINDOW | DESKTOP_ENUMERATE | GENERIC_READ);
-        if (hDesk == IntPtr.Zero) return false;
+        if (h == IntPtr.Zero) return false;
 
-        string name = GetDesktopName(hDesk);
+        string name = GetDesktopName(h);
         if (name.Length == 0 || name == _current)
         {
-            CloseDesktop(hDesk);
+            CloseDesktop(h);
             return false;
         }
+        if (_pendingHandle != IntPtr.Zero) CloseDesktop(_pendingHandle);
+        _pendingHandle = h;
+        _pendingName = name;
+        return true;
+    }
 
-        // Attach this thread to the new input desktop. Keep the handle open for the thread's lifetime
-        // on this desktop; the OS closes it when we switch again (we don't hold a ref we must free).
-        if (SetThreadDesktop(hDesk))
+    /// <summary>Attach this thread to the pending input desktop. Call only after DCs/windows are closed.</summary>
+    public static void AttachPending()
+    {
+        if (_pendingHandle == IntPtr.Zero) return;
+        if (SetThreadDesktop(_pendingHandle))
         {
-            _current = name;
-            return true;
+            if (_currentHandle != IntPtr.Zero) CloseDesktop(_currentHandle);
+            _currentHandle = _pendingHandle;
+            _current = _pendingName;
         }
-        CloseDesktop(hDesk);
-        return false;
+        else
+        {
+            CloseDesktop(_pendingHandle);
+        }
+        _pendingHandle = IntPtr.Zero;
     }
 
     private static string GetDesktopName(IntPtr hDesk)

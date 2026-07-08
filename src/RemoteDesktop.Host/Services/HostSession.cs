@@ -277,16 +277,21 @@ public sealed class HostSession
                 var displays = _displays;
                 if (displays.Count == 0) { Thread.Sleep(10); continue; }
                 var wantDisplay = displays.FirstOrDefault(d => d.Index == settings.DisplayIndex) ?? displays[0];
-                // In --agent mode this attaches the capture thread to the current input desktop (user
-                // desktop, or the Winlogon/UAC secure desktop) and reports when it switched, so we
-                // recreate the capturer on the new desktop and keep showing the login screen.
-                bool desktopSwitched = DesktopFollow.ReattachIfChanged();
-                if (desktopSwitched)
-                    _log.LogInformation("Input desktop -> {Desktop}", DesktopFollow.CurrentDesktop);
+                // In --agent mode: detect a switch to a new input desktop (user desktop, or the
+                // Winlogon/UAC secure desktop). We must close the current capturer's DCs BEFORE
+                // SetThreadDesktop (it fails while the thread holds a DC), so: detect → dispose →
+                // attach → recreate on the new desktop. This is what keeps the login screen visible.
+                bool desktopSwitched = DesktopFollow.PendingChanged();
                 if (_capture is null || _capture.Display.Index != wantDisplay.Index || desktopSwitched)
                 {
                     DrainPending();
                     _capture?.Dispose();
+                    _capture = null;
+                    if (desktopSwitched)
+                    {
+                        DesktopFollow.AttachPending();
+                        _log.LogInformation("Input desktop -> {Desktop}", DesktopFollow.CurrentDesktop);
+                    }
                     _capture = CreateCapture(wantDisplay);
                     _adaptive = new AdaptiveController(settings, wantDisplay.RefreshHz);
                     captureMinMs = double.MaxValue;
@@ -570,10 +575,11 @@ public sealed class HostSession
     private IScreenCapture CreateCapture(DisplayInfo display)
     {
 #if ENABLE_DXGI
-        // In --agent mode use GDI: it captures whatever desktop this (input-desktop-attached) thread is
-        // on, including the Winlogon/UAC secure desktop, whereas DXGI Desktop Duplication is blocked
-        // there. GDI on a small login screen is plenty fast.
-        if (_config.PreferHardwareCapture && !_forceGdi && !DesktopFollow.Enabled)
+        // Prefer DXGI Desktop Duplication. It captures the DWM-composited output, which is the ONLY
+        // way to see the modern login/lock/UAC screen — GDI returns blank there because LogonUI is
+        // rendered through DWM/DirectX, not GDI. As SYSTEM in the console session (agent mode) DXGI can
+        // duplicate the secure desktop; it recreates on the ACCESS_LOST that a desktop switch raises.
+        if (_config.PreferHardwareCapture && !_forceGdi)
         {
             try { return new DesktopDuplicationCapture(display); }
             catch (Exception ex) { _log.LogWarning(ex, "DXGI duplication unavailable; falling back to GDI."); }
