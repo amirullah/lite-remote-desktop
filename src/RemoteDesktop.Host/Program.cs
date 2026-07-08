@@ -102,8 +102,21 @@ internal sealed class TrayContext : ApplicationContext
         };
         _tray.DoubleClick += (_, _) => ShowStatus();
 
-        EnsureAuthConfigured();
-        StartServer();
+        // When login-screen support is installed, a SYSTEM daemon already serves on the port (and can
+        // reach the login/secure desktop). The interactive tray must NOT also bind it — that is the
+        // "only one usage of each socket address" error. Step aside and run as a settings tray only.
+        if (Service.LoginSupport.IsInstalled())
+        {
+            _tray.Text = "LiteRemote Host — login-support mode";
+            _tray.ShowBalloonTip(5000, "LiteRemote Host",
+                "Login-support is active: a background service handles connections and can show the " +
+                "Windows login screen. This tray is for settings only.", ToolTipIcon.Info);
+        }
+        else
+        {
+            EnsureAuthConfigured();
+            StartServer();
+        }
     }
 
     private static Icon LoadAppIcon()
@@ -146,6 +159,8 @@ internal sealed class TrayContext : ApplicationContext
 
     private void StartServer()
     {
+        // Never bind the port while the login-support service owns it (avoids the socket-in-use error).
+        if (Service.LoginSupport.IsInstalled()) return;
         try
         {
             _server = new HostServer(_config, _log);

@@ -14,6 +14,23 @@ internal static class LoginSupport
 {
     private const string TaskName = "LiteRemoteLogin";
 
+    /// <summary>
+    /// True when login-screen support is installed (the SYSTEM daemon owns the port and serves clients).
+    /// The interactive tray host uses this to step aside instead of fighting over port 7443.
+    /// </summary>
+    public static bool IsInstalled()
+    {
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo("schtasks", $"/query /tn {TaskName}")
+            { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true });
+            if (p is null) return false;
+            p.WaitForExit(5000);
+            return p.ExitCode == 0;
+        }
+        catch { return false; }
+    }
+
     public static void Install()
     {
         Console.WriteLine("Installing LiteRemote login-screen support…");
