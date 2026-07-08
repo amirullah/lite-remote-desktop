@@ -23,7 +23,9 @@ public partial class RdpWindow : Window
     private bool _wasConnected;
     private bool _rdpReady;   // true once the ActiveX control is attached & created without error
     private SplitTunnelVpn? _vpn;   // active split tunnel for this session, if any
-    private readonly DispatcherTimer _resize = new() { Interval = TimeSpan.FromMilliseconds(250) };
+    private readonly DispatcherTimer _resize = new() { Interval = TimeSpan.FromMilliseconds(300) };
+    private readonly System.Windows.Forms.Panel _panel = new() { Dock = System.Windows.Forms.DockStyle.Fill };
+    private volatile bool _sessionUp;   // true only after the RDP session is fully logged in (safe to resize)
 
     public RdpWindow(string host, string? user = null)
     {
@@ -55,14 +57,17 @@ public partial class RdpWindow : Window
     {
         try
         {
-            // Bracket the attach with ISupportInitialize (AxHost honours this) and force the OLE
-            // object to be created NOW, while the window handle is live and we can catch failure.
+            // Create the control ALREADY DOCKED inside a WinForms panel — never re-dock a live control.
+            // (Re-docking/resizing an mstscax control after Connect is what trips the Win10/11
+            // SmartSizing back-buffer blank-to-black bug.) Bracket with ISupportInitialize (AxHost
+            // honours it) and realise the OLE object now, while the handle is live and we can catch.
             var init = (System.ComponentModel.ISupportInitialize)_rdp;
             init.BeginInit();
-            FormsHost.Child = _rdp;
+            FormsHost.Child = _panel;              // panel fills the WindowsFormsHost
+            _rdp.Dock = System.Windows.Forms.DockStyle.Fill;   // dock BEFORE realizing
+            _panel.Controls.Add(_rdp);
             init.EndInit();
-            _rdp.CreateControl();   // realise the child HWND + instantiate the mstscax OLE object
-            _rdp.Dock = System.Windows.Forms.DockStyle.Fill;   // fill the WindowsFormsHost, not the ActiveX default size
+            _rdp.CreateControl();   // realise the child HWND (already docked to full size)
             _ = _rdp.Ocx;           // dereference once so a missing/unregistered control throws here
             _rdpReady = true;
         }
@@ -142,22 +147,52 @@ public partial class RdpWindow : Window
     /// <summary>Configure the ActiveX control and begin the RDP connection to host:port.</summary>
     private void StartRdp(string host, int port)
     {
+        _sessionUp = false;
         dynamic ocx = _rdp.Ocx;
         ocx.Server = host;
         if (UserBox.Text.Trim().Length > 0) ocx.UserName = UserBox.Text.Trim();
 
-        // Scale the remote desktop to fit our frame, and size the initial session to the frame.
-        int w = (int)Math.Max(640, RdpFrame.ActualWidth);
-        int h = (int)Math.Max(480, RdpFrame.ActualHeight);
+        // Size the initial session to the frame IN DEVICE PIXELS (not WPF DIPs), and pick dynamic-
+        // resolution mode (SmartSizing off) so the remote renders 1:1 and fills crisply. On connect/
+        // resize we call UpdateSessionDisplaySettings to re-fit — gated on a real "session up" signal.
+        var (w, h) = FramePx();
         try { ocx.DesktopWidth = w; ocx.DesktopHeight = h; } catch { }
+        try { ocx.AdvancedSettings2.SmartSizing = false; } catch { }
 
         TryAdvanced(ocx, port, PassBox.Password);
+
+        // Set per-monitor DPI on the control. This makes the remote UI the right physical size AND is
+        // the documented workaround that stops a post-connect resize from blanking the surface to black.
+        try
+        {
+            object dsf = DesktopScalePct(); _rdp.Extended.set_Property("DesktopScaleFactor", ref dsf);
+            object dvf = DeviceScale();     _rdp.Extended.set_Property("DeviceScaleFactor", ref dvf);
+        }
+        catch (Exception ex) { Services.Diag.Log("[rdp] ext-scale: " + ex.Message); }
 
         ocx.Connect();
         Status($"Menghubungkan RDP ke {host}:{port} …");
         ConnectBtn.IsEnabled = false;
         DisconnectBtn.IsEnabled = true;
     }
+
+    // --- DPI-aware sizing helpers (the RDP control wants device pixels; WPF ActualWidth is in DIPs) ---
+    private (double sx, double sy) DpiScale()
+    {
+        var m = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformToDevice;
+        return m is { } t ? (t.M11, t.M22) : (1.0, 1.0);
+    }
+
+    private (uint w, uint h) FramePx()
+    {
+        var (sx, sy) = DpiScale();
+        int w = (int)Math.Round(RdpFrame.ActualWidth * sx); w -= w & 1;   // even
+        int h = (int)Math.Round(RdpFrame.ActualHeight * sy); h -= h & 1;
+        return ((uint)Math.Clamp(w, 640, 8192), (uint)Math.Clamp(h, 480, 8192));
+    }
+
+    private uint DesktopScalePct() => (uint)Math.Round(DpiScale().sx * 100);          // 100/125/150…
+    private uint DeviceScale() => DesktopScalePct() switch { >= 170 => 180, >= 130 => 140, _ => 100 };
 
     // The RDP control wants server and port split; accept "host:port" for convenience.
     private static (string host, int port) SplitHostPort(string raw)
@@ -301,7 +336,6 @@ public partial class RdpWindow : Window
                 dynamic adv = GetMember(ocx, name);
                 if (adv is null) continue;
                 try { adv.RDPPort = port; } catch { }
-                try { adv.SmartSizing = true; } catch { }
                 try { adv.EnableCredSspSupport = true; } catch { }         // NLA
                 try { adv.AuthenticationLevel = 0; } catch { }             // don't hard-fail on cert
                 if (password.Length > 0) { try { adv.ClearTextPassword = password; } catch { } }
@@ -325,21 +359,20 @@ public partial class RdpWindow : Window
     }
 
     /// <summary>
-    /// Resize the remote session to the current frame so it fills the window crisply (RDP 8.1+ dynamic
-    /// resolution). Hosts that don't support the live update simply keep their size — SmartSizing (set in
-    /// TryAdvanced) then scales the image to fill instead.
+    /// Fit the remote desktop to the window by changing the REMOTE resolution to the frame's pixel size
+    /// (dynamic resolution). It renders 1:1 — crisp, edge-to-edge, no scaling, no black. Only valid once
+    /// the session is fully logged in (<see cref="_sessionUp"/>); calling it too early returns E_FAIL and
+    /// leaves the surface black, which is exactly what bit the earlier attempts.
     /// </summary>
     private void ApplyRemoteSize()
     {
-        if (!_rdpReady) return;
+        if (!_rdpReady || !_sessionUp) return;
+        var (w, h) = FramePx();
         try
         {
-            if ((int)_rdp.Ocx.Connected != 1) return;
-            uint w = (uint)Math.Max(200, (int)RdpFrame.ActualWidth);
-            uint h = (uint)Math.Max(200, (int)RdpFrame.ActualHeight);
-            _rdp.Ocx.UpdateSessionDisplaySettings(w, h, w, h, 0u, 100u, 100u);
+            _rdp.Client9.UpdateSessionDisplaySettings(w, h, w, h, 0, DesktopScalePct(), DeviceScale());
         }
-        catch (Exception ex) { Services.Diag.Log("[rdp] resize: " + ex.GetType().Name); }
+        catch (Exception ex) { Services.Diag.Log("[rdp] updatedisplay: " + ex.Message); }
     }
 
     private void UpdateConnectionState()
@@ -352,14 +385,28 @@ public partial class RdpWindow : Window
             Status("Terhubung.");
             ConnectBtn.IsEnabled = false;
             DisconnectBtn.IsEnabled = true;
-            _resize.Stop(); _resize.Start();   // fit the remote desktop to the window once it's up
+            ScheduleSessionUp();   // mark session up after a settle, then fit to the window
         }
         else
         {
+            _sessionUp = false;
             Status("Terputus. Isi kredensial lalu tekan Hubungkan.");
             ConnectBtn.IsEnabled = true;
             DisconnectBtn.IsEnabled = false;
         }
+    }
+
+    /// <summary>
+    /// The Connected flag flips before the RDP session surface is fully established; calling
+    /// UpdateSessionDisplaySettings in that window returns E_FAIL and blanks the view. Wait a beat, then
+    /// mark the session up and fit it to the window.
+    /// </summary>
+    private async void ScheduleSessionUp()
+    {
+        try { await Task.Delay(1500); } catch { }
+        if (!_rdpReady || !_rdp.IsConnected) return;
+        _sessionUp = true;
+        ApplyRemoteSize();
     }
 
     // Thread-safe: the VPN read loop reports state from a background thread, and touching a WPF element
