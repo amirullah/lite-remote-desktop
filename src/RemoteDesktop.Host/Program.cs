@@ -38,6 +38,11 @@ internal static class Program
                 CaptureBench.Run();
                 return;
             }
+            if (args[i] == "--h264-probe")
+            {
+                H264Probe.Run();
+                return;
+            }
         }
 
         // One host per machine: a second instance would fight over port 7443 and confuse the tray.
