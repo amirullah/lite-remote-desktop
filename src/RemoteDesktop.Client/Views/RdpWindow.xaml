@@ -8,8 +8,8 @@
         <!-- Credential + VPN bar -->
         <Border DockPanel.Dock="Top" Background="#122A4D" Padding="10,8">
             <StackPanel>
-                <!-- VPN row (optional): bring a tunnel up first, then RDP -->
-                <Grid Margin="0,0,0,8">
+                <!-- VPN rows (optional): bring a split tunnel up first (only the host routes via VPN), then RDP -->
+                <Grid Margin="0,0,0,6">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
@@ -17,12 +17,26 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" Text="VPN (.ovpn)" Foreground="#9FC0F0" VerticalAlignment="Center" Margin="2,0,6,0" FontWeight="SemiBold"/>
-                    <TextBox   Grid.Column="1" x:Name="VpnBox" VerticalContentAlignment="Center" Padding="6,4"
-                               ToolTip="Opsional. Jika diisi dan host belum terjangkau, LiteRemote membuka profil ini di OpenVPN Connect, menunggu tunnel siap, lalu menyambung RDP otomatis."/>
+                    <TextBox   Grid.Column="1" x:Name="VpnBox" VerticalContentAlignment="Center" Padding="6,4" TextChanged="VpnBox_TextChanged"
+                               ToolTip="Opsional. Jika diisi, LiteRemote menyalakan tunnel HANYA untuk host di bawah (split-tunnel) memakai mesin OpenVPN bawaannya, lalu menyambung RDP otomatis. Perlu izin admin sekali (UAC) saat menyalakan VPN."/>
                     <Button Grid.Column="2" x:Name="PickVpnBtn" Content="Pilih…" Margin="8,0,0,0" Padding="12,4"
                             Background="#33507F" Foreground="White" BorderThickness="0" Click="PickVpn_Click"/>
                     <Button Grid.Column="3" x:Name="ClearVpnBtn" Content="✕" Margin="6,0,0,0" Padding="9,4"
                             Background="#33507F" Foreground="White" BorderThickness="0" Click="ClearVpn_Click" ToolTip="Kosongkan profil VPN (koneksi langsung)"/>
+                </Grid>
+                <Grid Margin="0,0,0,8" x:Name="VpnCredRow">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="VPN user" Foreground="#9FC0F0" VerticalAlignment="Center" Margin="2,0,6,0" FontWeight="SemiBold"/>
+                    <TextBox   Grid.Column="1" x:Name="VpnUserBox" VerticalContentAlignment="Center" Padding="6,4"
+                               ToolTip="Username akun VPN (mis. NRP@student.its.ac.id). Diisi otomatis dari profil bila ada."/>
+                    <TextBlock Grid.Column="2" Text="VPN pass" Foreground="#9FC0F0" VerticalAlignment="Center" Margin="12,0,6,0" FontWeight="SemiBold"/>
+                    <PasswordBox Grid.Column="3" x:Name="VpnPassBox" VerticalContentAlignment="Center" Padding="6,4"
+                                 ToolTip="Password akun VPN (mis. password myITS). Tidak pernah ditulis ke disk — dikirim langsung ke mesin VPN."/>
                 </Grid>
                 <!-- Credential row -->
                 <Grid>

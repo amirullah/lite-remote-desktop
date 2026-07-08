@@ -1,9 +1,13 @@
 using System;
+using System.IO;
 using System.Net.Sockets;
+using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 using RemoteDesktop.Client.Rendering;
+using RemoteDesktop.Client.Services;
 
 namespace RemoteDesktop.Client.Views;
 
@@ -18,6 +22,7 @@ public partial class RdpWindow : Window
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private bool _wasConnected;
     private bool _rdpReady;   // true once the ActiveX control is attached & created without error
+    private SplitTunnelVpn? _vpn;   // active split tunnel for this session, if any
 
     public RdpWindow(string host, string? user = null)
     {
@@ -38,6 +43,7 @@ public partial class RdpWindow : Window
         {
             _poll.Stop();
             try { if (_rdpReady && _rdp.IsConnected) _rdp.Ocx.Disconnect(); } catch { /* control tearing down */ }
+            _ = DisposeVpnAsync();   // tear the split tunnel down (SIGTERM) so it doesn't linger
         };
     }
 
@@ -89,13 +95,29 @@ public partial class RdpWindow : Window
             if (vpn.Length > 0 && !await IsReachableAsync(host, port, 700))
             {
                 RememberVpn(vpn);
-                Status("Menyalakan VPN… tekan Connect di OpenVPN Connect bila diminta.");
-                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(vpn) { UseShellExecute = true }); }
-                catch (Exception ex) { Status("Gagal membuka profil VPN: " + ex.Message); ConnectBtn.IsEnabled = true; return; }
-
-                if (!await WaitReachableAsync(host, port, TimeSpan.FromSeconds(120)))
+                if (!SplitTunnelVpn.EngineAvailable)
                 {
-                    Status($"Host {host}:{port} belum terjangkau. Pastikan VPN sudah 'Connected', lalu tekan Hubungkan lagi.");
+                    Status("Mesin VPN belum ada di build ini. Install ulang LiteRemote (versi ber-VPN), " +
+                           "atau nyalakan VPN manual lalu tekan Hubungkan.");
+                    ConnectBtn.IsEnabled = true;
+                    return;
+                }
+                if (VpnUserBox.Text.Trim().Length == 0 || VpnPassBox.Password.Length == 0)
+                {
+                    Status("Isi VPN user & VPN pass dulu untuk menyalakan tunnel.");
+                    ConnectBtn.IsEnabled = true;
+                    return;
+                }
+
+                // Bring up a split tunnel that routes ONLY this host through the VPN.
+                await DisposeVpnAsync();
+                _vpn = new SplitTunnelVpn();
+                bool up = await _vpn.ConnectAsync(vpn, VpnUserBox.Text.Trim(), VpnPassBox.Password, host, Status, CancellationToken.None);
+                if (!up) { await DisposeVpnAsync(); ConnectBtn.IsEnabled = true; return; }
+
+                if (!await WaitReachableAsync(host, port, TimeSpan.FromSeconds(15)))
+                {
+                    Status($"VPN tersambung, tapi {host}:{port} belum terjangkau — cek IP host / RDP aktif di sana.");
                     ConnectBtn.IsEnabled = true;
                     return;
                 }
@@ -151,11 +173,33 @@ public partial class RdpWindow : Window
         if (dlg.ShowDialog(this) == true) { VpnBox.Text = dlg.FileName; RememberVpn(dlg.FileName); }
     }
 
-    private void ClearVpn_Click(object sender, RoutedEventArgs e) => VpnBox.Text = string.Empty;
+    private void ClearVpn_Click(object sender, RoutedEventArgs e) { VpnBox.Text = string.Empty; VpnUserBox.Text = string.Empty; }
+
+    // When a profile is chosen, prefill the VPN username from the profile if it carries one
+    // (myITS profiles embed  setenv USERNAME "NRP@student.its.ac.id" ).
+    private void VpnBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    {
+        if (VpnUserBox is null || VpnUserBox.Text.Trim().Length > 0) return;
+        var path = VpnBox.Text.Trim();
+        if (path.Length == 0 || !File.Exists(path)) return;
+        try
+        {
+            var text = File.ReadAllText(path);
+            var m = Regex.Match(text, "setenv\\s+USERNAME\\s+\"?([^\"\\r\\n]+)\"?", RegexOptions.IgnoreCase);
+            if (m.Success) VpnUserBox.Text = m.Groups[1].Value.Trim();
+        }
+        catch { }
+    }
 
     private static void RememberVpn(string path)
     {
         try { var cfg = Services.ClientConfig.Load(); cfg.LastVpnProfile = path; cfg.Save(); } catch { }
+    }
+
+    private async Task DisposeVpnAsync()
+    {
+        var v = _vpn; _vpn = null;
+        if (v != null) { try { await v.DisposeAsync(); } catch { } }
     }
 
     /// <summary>One quick TCP connect attempt with a timeout; true if the port accepts within it.</summary>

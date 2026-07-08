@@ -52,3 +52,6 @@ docs/SESSION-HANDOFF.md
 # OS
 .DS_Store
 Thumbs.db
+
+# Bundled OpenVPN engine (fetched + signature-verified by build-installer.ps1; not source)
+third_party/
