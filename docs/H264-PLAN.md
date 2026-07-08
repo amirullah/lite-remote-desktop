@@ -14,7 +14,11 @@ JPEG-tiles tetap fallback universal (VM tanpa encoder hardware, atau negosiasi g
 ## Milestone
 - [x] **M0 — Probe** (`--h264-probe`, sudah di main): konfirmasi MFT encoder H.264.
   Terbukti di PC AMD: 2× `AMDh264Encoder` (hardware) + 1 software. Interop MF dasar bekerja.
-- [ ] **M1 — Encoder host** (`H264Encoder.cs` + `--bench-h264`):
+- [x] **M1 — Encoder host** (`H264Encoder.cs` + `--bench-h264`) — SELESAI & terbukti:
+  - PC AMD fisik: `AMDh264Encoder [hardware/async]` dipilih otomatis, Annex-B **VALID**,
+    ~33 KB/frame, encode best ~8 ms (feed+drain sinkron; GPU murni lebih cepat, ter-pipeline
+    di produksi). NV12 diparalelkan (1080p ~9→~2 ms). Fallback SW-sync bila tak ada hardware.
+  - Detail asli milestone: 
   - Paket `Vortice.MediaFoundation` (v3.6.2, sudah terverifikasi restore).
   - MFTEnumEx(VIDEO_ENCODER, HARDWARE→fallback SW) → `IMFTransform`.
   - SetOutputType: H264 (MF_MT_AVG_BITRATE, MF_MT_FRAME_SIZE, MF_MT_FRAME_RATE,

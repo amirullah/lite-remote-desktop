@@ -43,6 +43,11 @@ internal static class Program
                 H264Probe.Run();
                 return;
             }
+            if (args[i] == "--bench-h264")
+            {
+                H264Bench.Run();
+                return;
+            }
         }
 
         // One host per machine: a second instance would fight over port 7443 and confuse the tray.
