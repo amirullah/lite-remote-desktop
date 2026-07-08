@@ -48,6 +48,11 @@ internal static class Program
                 H264Bench.Run();
                 return;
             }
+            // Login-screen support (runs the host as a SYSTEM agent that can reach the secure desktop).
+            if (args[i] == "--agent") { Service.AgentHost.RunAgent(); return; }
+            if (args[i] == "--daemon") { Service.AgentHost.RunDaemon(); return; }
+            if (args[i] == "--install-login") { AttachConsoleForCli(); Service.LoginSupport.Install(); return; }
+            if (args[i] == "--uninstall-login") { AttachConsoleForCli(); Service.LoginSupport.Uninstall(); return; }
         }
 
         // One host per machine: a second instance would fight over port 7443 and confuse the tray.
@@ -62,6 +67,11 @@ internal static class Program
         ApplicationConfiguration.Initialize();
         Application.Run(new TrayContext());
     }
+
+    // WinExe has no console; attach to the caller's so CLI helpers can print.
+    private static void AttachConsoleForCli() { try { AttachConsole(-1); } catch { } }
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern bool AttachConsole(int dwProcessId);
 }
 
 /// <summary>

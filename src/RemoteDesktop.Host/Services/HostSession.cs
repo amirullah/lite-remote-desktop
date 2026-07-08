@@ -277,7 +277,13 @@ public sealed class HostSession
                 var displays = _displays;
                 if (displays.Count == 0) { Thread.Sleep(10); continue; }
                 var wantDisplay = displays.FirstOrDefault(d => d.Index == settings.DisplayIndex) ?? displays[0];
-                if (_capture is null || _capture.Display.Index != wantDisplay.Index)
+                // In --agent mode this attaches the capture thread to the current input desktop (user
+                // desktop, or the Winlogon/UAC secure desktop) and reports when it switched, so we
+                // recreate the capturer on the new desktop and keep showing the login screen.
+                bool desktopSwitched = DesktopFollow.ReattachIfChanged();
+                if (desktopSwitched)
+                    _log.LogInformation("Input desktop -> {Desktop}", DesktopFollow.CurrentDesktop);
+                if (_capture is null || _capture.Display.Index != wantDisplay.Index || desktopSwitched)
                 {
                     DrainPending();
                     _capture?.Dispose();
@@ -319,26 +325,32 @@ public sealed class HostSession
 
                 CapturedFrame? frame;
                 long captureMs;
-                if (pendingCapture != null && ReferenceEquals(pendingOwner, capture))
+                // --agent mode must grab on THIS thread (the one attached to the input desktop) — a
+                // pooled thread would be on the wrong desktop and miss the login screen. So pipelining
+                // is disabled there; everywhere else it overlaps capture N+1 with encode N.
+                bool pipeline = !DesktopFollow.Enabled;
+                if (pipeline && pendingCapture != null && ReferenceEquals(pendingOwner, capture))
                 {
                     (frame, captureMs) = pendingCapture.GetAwaiter().GetResult();
                 }
                 else
                 {
-                    // First iteration or the display just changed — capture synchronously.
                     var t = Stopwatch.StartNew();
                     frame = capture.Capture(timeoutMs: 100);
                     captureMs = t.ElapsedMilliseconds;
                 }
 
                 // Kick off the next capture right away; it overlaps with the encode below.
-                pendingOwner = capture;
-                pendingCapture = Task.Run(() =>
+                if (pipeline)
                 {
-                    var t = Stopwatch.StartNew();
-                    var f = capture.Capture(timeoutMs: 100);
-                    return (f, t.ElapsedMilliseconds);
-                });
+                    pendingOwner = capture;
+                    pendingCapture = Task.Run(() =>
+                    {
+                        var t = Stopwatch.StartNew();
+                        var f = capture.Capture(timeoutMs: 100);
+                        return (f, t.ElapsedMilliseconds);
+                    });
+                }
 
                 // Timing starts at the frame, not the wait-for-change — otherwise idle time would
                 // masquerade as encode cost in the stats and the adaptive controller.
@@ -558,7 +570,10 @@ public sealed class HostSession
     private IScreenCapture CreateCapture(DisplayInfo display)
     {
 #if ENABLE_DXGI
-        if (_config.PreferHardwareCapture && !_forceGdi)
+        // In --agent mode use GDI: it captures whatever desktop this (input-desktop-attached) thread is
+        // on, including the Winlogon/UAC secure desktop, whereas DXGI Desktop Duplication is blocked
+        // there. GDI on a small login screen is plenty fast.
+        if (_config.PreferHardwareCapture && !_forceGdi && !DesktopFollow.Enabled)
         {
             try { return new DesktopDuplicationCapture(display); }
             catch (Exception ex) { _log.LogWarning(ex, "DXGI duplication unavailable; falling back to GDI."); }
