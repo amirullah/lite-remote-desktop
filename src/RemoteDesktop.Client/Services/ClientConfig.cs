@@ -15,6 +15,9 @@ public sealed class ClientConfig
     /// <summary>Relay server ("host:port") used for ID-based connections. Shared with the host side.</summary>
     public string RelayAddress { get; set; } = "";
 
+    /// <summary>Last .ovpn profile used by the embedded RDP "VPN + RDP" flow, so it prefills next time.</summary>
+    public string? LastVpnProfile { get; set; }
+
     public void Remember(SavedConnection conn)
     {
         Recent.RemoveAll(c => c.Host == conn.Host && c.Port == conn.Port);

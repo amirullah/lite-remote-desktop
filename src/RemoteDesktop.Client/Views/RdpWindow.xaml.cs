@@ -1,4 +1,6 @@
 using System;
+using System.Net.Sockets;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 using RemoteDesktop.Client.Rendering;
@@ -28,6 +30,7 @@ public partial class RdpWindow : Window
         // keeping the window visible.
         HostBox.Text = host ?? string.Empty;
         UserBox.Text = user ?? string.Empty;
+        try { VpnBox.Text = Services.ClientConfig.Load().LastVpnProfile ?? string.Empty; } catch { }
 
         _poll.Tick += (_, _) => UpdateConnectionState();
         Loaded += OnLoaded;
@@ -67,34 +70,38 @@ public partial class RdpWindow : Window
         if (string.IsNullOrWhiteSpace(UserBox.Text)) UserBox.Focus(); else PassBox.Focus();
     }
 
-    private void Connect_Click(object sender, RoutedEventArgs e)
+    private async void Connect_Click(object sender, RoutedEventArgs e)
     {
         if (!_rdpReady) { Status("Kontrol Windows RDP tidak tersedia di PC ini."); return; }
-        var host = HostBox.Text.Trim();
-        if (host.Length == 0) { Status("Isi alamat host dulu."); HostBox.Focus(); return; }
+        var raw = HostBox.Text.Trim();
+        if (raw.Length == 0) { Status("Isi alamat host dulu."); HostBox.Focus(); return; }
+        var (host, port) = SplitHostPort(raw);
 
-        // The RDP control wants server and port split; accept "host:port" for convenience.
-        int port = 3389;
-        int colon = host.LastIndexOf(':');
-        if (colon > 0 && int.TryParse(host[(colon + 1)..], out var p)) { port = p; host = host[..colon]; }
-
+        ConnectBtn.IsEnabled = false;
         try
         {
-            dynamic ocx = _rdp.Ocx;
-            ocx.Server = host;
-            if (UserBox.Text.Trim().Length > 0) ocx.UserName = UserBox.Text.Trim();
+            // VPN-first (optional): if a profile is set and the host isn't reachable yet, open the
+            // profile in the system's OpenVPN client (OpenVPN Connect) and wait for the tunnel to make
+            // the host reachable before starting RDP. We can't run the tunnel ourselves (needs
+            // openvpn.exe + the TAP/Wintun driver + admin), so we orchestrate the installed client and
+            // gate RDP on TCP reachability — the whole thing is still one button for the user.
+            string vpn = VpnBox.Text.Trim();
+            if (vpn.Length > 0 && !await IsReachableAsync(host, port, 700))
+            {
+                RememberVpn(vpn);
+                Status("Menyalakan VPN… tekan Connect di OpenVPN Connect bila diminta.");
+                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(vpn) { UseShellExecute = true }); }
+                catch (Exception ex) { Status("Gagal membuka profil VPN: " + ex.Message); ConnectBtn.IsEnabled = true; return; }
 
-            // Scale the remote desktop to fit our frame, and size the initial session to the frame.
-            int w = (int)Math.Max(640, RdpFrame.ActualWidth);
-            int h = (int)Math.Max(480, RdpFrame.ActualHeight);
-            try { ocx.DesktopWidth = w; ocx.DesktopHeight = h; } catch { }
+                if (!await WaitReachableAsync(host, port, TimeSpan.FromSeconds(120)))
+                {
+                    Status($"Host {host}:{port} belum terjangkau. Pastikan VPN sudah 'Connected', lalu tekan Hubungkan lagi.");
+                    ConnectBtn.IsEnabled = true;
+                    return;
+                }
+            }
 
-            TryAdvanced(ocx, port, PassBox.Password);
-
-            ocx.Connect();
-            Status($"Menghubungkan ke {host}:{port} …");
-            ConnectBtn.IsEnabled = false;
-            DisconnectBtn.IsEnabled = true;
+            StartRdp(host, port);
         }
         catch (Exception ex)
         {
@@ -102,6 +109,87 @@ public partial class RdpWindow : Window
             ConnectBtn.IsEnabled = true;
             DisconnectBtn.IsEnabled = false;
         }
+    }
+
+    /// <summary>Configure the ActiveX control and begin the RDP connection to host:port.</summary>
+    private void StartRdp(string host, int port)
+    {
+        dynamic ocx = _rdp.Ocx;
+        ocx.Server = host;
+        if (UserBox.Text.Trim().Length > 0) ocx.UserName = UserBox.Text.Trim();
+
+        // Scale the remote desktop to fit our frame, and size the initial session to the frame.
+        int w = (int)Math.Max(640, RdpFrame.ActualWidth);
+        int h = (int)Math.Max(480, RdpFrame.ActualHeight);
+        try { ocx.DesktopWidth = w; ocx.DesktopHeight = h; } catch { }
+
+        TryAdvanced(ocx, port, PassBox.Password);
+
+        ocx.Connect();
+        Status($"Menghubungkan RDP ke {host}:{port} …");
+        ConnectBtn.IsEnabled = false;
+        DisconnectBtn.IsEnabled = true;
+    }
+
+    // The RDP control wants server and port split; accept "host:port" for convenience.
+    private static (string host, int port) SplitHostPort(string raw)
+    {
+        int port = 3389;
+        int colon = raw.LastIndexOf(':');
+        if (colon > 0 && int.TryParse(raw[(colon + 1)..], out var p)) { port = p; raw = raw[..colon]; }
+        return (raw, port);
+    }
+
+    private void PickVpn_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Pilih profil OpenVPN (.ovpn)",
+            Filter = "Profil OpenVPN (*.ovpn)|*.ovpn|Semua berkas (*.*)|*.*",
+            CheckFileExists = true,
+        };
+        if (dlg.ShowDialog(this) == true) { VpnBox.Text = dlg.FileName; RememberVpn(dlg.FileName); }
+    }
+
+    private void ClearVpn_Click(object sender, RoutedEventArgs e) => VpnBox.Text = string.Empty;
+
+    private static void RememberVpn(string path)
+    {
+        try { var cfg = Services.ClientConfig.Load(); cfg.LastVpnProfile = path; cfg.Save(); } catch { }
+    }
+
+    /// <summary>One quick TCP connect attempt with a timeout; true if the port accepts within it.</summary>
+    private static async Task<bool> IsReachableAsync(string host, int port, int timeoutMs)
+    {
+        try
+        {
+            using var client = new TcpClient();
+            var connect = client.ConnectAsync(host, port);
+            var done = await Task.WhenAny(connect, Task.Delay(timeoutMs));
+            if (done != connect)
+            {
+                // Timed out; disposing the client cancels the pending connect. Observe its eventual
+                // fault so it doesn't surface as an unobserved task exception.
+                _ = connect.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+                return false;
+            }
+            await connect;               // surface a real connect fault as false via the catch
+            return client.Connected;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Poll until the host:port is reachable (VPN tunnel came up) or the budget elapses.</summary>
+    private async Task<bool> WaitReachableAsync(string host, int port, TimeSpan max)
+    {
+        var start = DateTime.UtcNow;
+        while (DateTime.UtcNow - start < max)
+        {
+            if (await IsReachableAsync(host, port, 1200)) return true;
+            Status($"Menunggu tunnel VPN & host {host}:{port} … ({(int)(DateTime.UtcNow - start).TotalSeconds}s)");
+            await Task.Delay(1500);
+        }
+        return false;
     }
 
     // AdvancedSettings exposes a growing list of versioned interfaces; we probe from newest to oldest
@@ -175,7 +263,12 @@ public partial class RdpWindow : Window
             catch (Exception ex) { return "err:" + ex.GetType().Name; }
         }
 
-        try { Connect_Click(this, new RoutedEventArgs()); log.AppendLine("Connect() issued OK; OCX instantiated"); }
+        try
+        {
+            var (h, pt) = SplitHostPort(HostBox.Text.Trim());
+            StartRdp(h, pt);
+            log.AppendLine("Connect() issued OK; OCX instantiated");
+        }
         catch (Exception ex) { log.AppendLine("Connect() threw: " + ex); done(log.ToString()); return; }
 
         int ticks = 0, max = Math.Max(1, seconds * 2);
