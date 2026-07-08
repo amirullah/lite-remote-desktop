@@ -26,6 +26,23 @@ public partial class App : Application
             return;
         }
 
+        // Headless embedded-RDP smoke test (no interaction): LiteRemote --rdp-test <host[:port]> [logPath].
+        // Proves the mstscax.dll ActiveX control instantiates in-process and initiates a connection.
+        if (e.Args.Length >= 2 && e.Args[0] == "--rdp-test")
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            string log = e.Args.Length >= 3 ? e.Args[2] : "rdp-test.log";
+            var win = new Views.RdpWindow(e.Args[1]) { Left = -4000, Top = -4000, WindowStartupLocation = WindowStartupLocation.Manual };
+            win.Show();
+            win.Dispatcher.BeginInvoke(new Action(() =>
+                win.RunConnectProbe(8, report =>
+                {
+                    try { System.IO.File.WriteAllText(log, report); } catch { }
+                    Shutdown(0);
+                })), DispatcherPriority.ApplicationIdle);
+            return;
+        }
+
         // A remote-desktop client should never hard-crash on a transient network/codec hiccup —
         // log and keep the session alive where we safely can.
         DispatcherUnhandledException += OnUnhandledException;

@@ -7,6 +7,8 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <UseWPF>true</UseWPF>
+    <!-- Needed to host the Windows RDP ActiveX control (mstscax.dll) inside the app via WindowsFormsHost. -->
+    <UseWindowsForms>true</UseWindowsForms>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>LiteRemote</AssemblyName>
@@ -24,6 +26,15 @@
   <ItemGroup>
     <Compile Include="..\RemoteDesktop.Host\Capture\H264Decoder.cs" Link="Rendering\H264Decoder.cs" />
   </ItemGroup>
+
+  <!-- UseWindowsForms turns on global usings for System.Windows.Forms and System.Drawing, which collide
+       with WPF's Application/Image/MouseEventArgs/KeyEventArgs everywhere. Drop those implicit usings;
+       the RDP-hosting code that actually needs WinForms references it with an explicit using. -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
 
   <ItemGroup>
     <!-- Window/title-bar icon; the exe icon above only covers Explorer and the taskbar. -->

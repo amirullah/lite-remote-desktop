@@ -86,9 +86,10 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Launch Windows' built-in Remote Desktop (mstsc) to the entered host. RDP authenticates with the
-    /// Windows account (user + password) and can drive the login/lock screen — the one thing
-    /// LiteRemote's own path cannot. Requires "Remote Desktop" enabled on the target (TCP 3389).
+    /// Open a real Windows RDP session embedded inside LiteRemote (the mstscax.dll ActiveX control),
+    /// not by launching the external mstsc app. RDP authenticates with the Windows account
+    /// (user + password) and can drive the login/lock screen — the one thing LiteRemote's own path
+    /// cannot. Requires "Remote Desktop" enabled on the target (TCP 3389).
     /// </summary>
     private void Rdp_Click(object sender, RoutedEventArgs e)
     {
@@ -96,11 +97,11 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(host)) { SetStatus("Isi HOST ADDRESS dulu untuk Windows RDP."); return; }
         try
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("mstsc.exe", $"/v:{host}")
-            { UseShellExecute = true });
-            SetStatus($"Membuka Windows Remote Desktop ke {host}…");
+            var win = new RdpWindow(host) { Owner = this };
+            win.Show();
+            SetStatus($"Membuka sesi RDP tertanam ke {host}…");
         }
-        catch (Exception ex) { SetStatus($"Gagal membuka Windows RDP: {ex.Message}"); }
+        catch (Exception ex) { SetStatus($"Gagal membuka RDP tertanam: {ex.Message}"); }
     }
 
     private void DeleteSaved_Click(object sender, RoutedEventArgs e)

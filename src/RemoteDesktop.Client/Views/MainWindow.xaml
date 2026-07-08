@@ -126,12 +126,13 @@
                             <!-- connect -->
                             <Button x:Name="ConnectButton" Content="Connect" FontSize="15"
                                     Padding="16,12" Margin="0,20,0,0" Click="Connect_Click"/>
-                            <!-- Windows' own Remote Desktop (mstsc) — handles the login screen with the
-                                 Windows user + password, which LiteRemote's own path can't. -->
-                            <Button x:Name="RdpButton" Content="Buka via Windows RDP (user + password)"
+                            <!-- Embedded Windows RDP session (mstscax ActiveX inside our own window) —
+                                 signs in with the Windows user + password, so it also handles the login
+                                 screen, which LiteRemote's own path can't. -->
+                            <Button x:Name="RdpButton" Content="Windows RDP di dalam aplikasi (user + password)"
                                     Style="{StaticResource Ghost}" Margin="0,10,0,0" Padding="12,9"
                                     Click="Rdp_Click"
-                                    ToolTip="Membuka Remote Desktop bawaan Windows (mstsc) ke alamat di atas. Login pakai user &amp; password Windows — bisa menembus layar login. Perlu RDP diaktifkan di PC tujuan (port 3389)."/>
+                                    ToolTip="Membuka sesi Remote Desktop Windows LANGSUNG di dalam LiteRemote (bukan aplikasi mstsc terpisah). Login pakai user &amp; password Windows — bisa menembus layar login. Perlu RDP diaktifkan di PC tujuan (port 3389)."/>
                             <TextBlock x:Name="StatusText" Foreground="{StaticResource Muted}"
                                        TextWrapping="Wrap" Margin="2,10,0,0" MinHeight="16"/>
                         </StackPanel>
