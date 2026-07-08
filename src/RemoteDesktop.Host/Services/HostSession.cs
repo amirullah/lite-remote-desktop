@@ -33,6 +33,8 @@ public sealed class HostSession
     private Thread? _captureThread;
     private volatile IReadOnlyList<DisplayInfo> _displays = Array.Empty<DisplayInfo>();
     private int _gdiTargetW, _gdiTargetH; // last source-scale target pushed to the GDI capturer
+    // Remote input queued for the capture thread to inject (agent mode only) — see RouteInput.
+    private readonly System.Collections.Concurrent.ConcurrentQueue<Action> _inputQueue = new();
 
     private IScreenCapture? _capture;
     private InputInjector? _injector;
@@ -185,19 +187,19 @@ public sealed class HostSession
                 // (handled by HostPrivacyService), so these must not be gated on LockHostInput.
                 case MessageType.MouseMove:
                     _inputActivity = true;
-                    _injector?.MouseMove(PayloadCodec.ReadMouseMove(msg.Span));
+                    { var e = PayloadCodec.ReadMouseMove(msg.Span); RouteInput(() => _injector?.MouseMove(e)); }
                     break;
                 case MessageType.MouseButton:
                     _inputActivity = true;
-                    _injector?.MouseButton(PayloadCodec.ReadMouseButton(msg.Span));
+                    { var e = PayloadCodec.ReadMouseButton(msg.Span); RouteInput(() => _injector?.MouseButton(e)); }
                     break;
                 case MessageType.MouseWheel:
                     _inputActivity = true;
-                    _injector?.MouseWheel(PayloadCodec.ReadMouseWheel(msg.Span));
+                    { var e = PayloadCodec.ReadMouseWheel(msg.Span); RouteInput(() => _injector?.MouseWheel(e)); }
                     break;
                 case MessageType.KeyEvent:
                     _inputActivity = true;
-                    _injector?.Key(PayloadCodec.ReadKey(msg.Span));
+                    { var e = PayloadCodec.ReadKey(msg.Span); RouteInput(() => _injector?.Key(e)); }
                     break;
 
                 case MessageType.ClipboardUpdate:
@@ -213,6 +215,17 @@ public sealed class HostSession
                     return;
             }
         }
+    }
+
+    /// <summary>
+    /// In --agent mode remote input must be replayed from the capture thread (the one attached to the
+    /// current input desktop via <see cref="DesktopFollow"/>), or SendInput never reaches the
+    /// login/secure desktop. In the normal user-session host we inject inline as before.
+    /// </summary>
+    private void RouteInput(Action inject)
+    {
+        if (DesktopFollow.Enabled) _inputQueue.Enqueue(inject);
+        else inject();
     }
 
     private void ApplySettings(SessionSettings s, IReadOnlyList<DisplayInfo> displays)
@@ -327,6 +340,10 @@ public sealed class HostSession
                 // Remote input means the user is interacting — cancel any idle backoff immediately
                 // so the first visual response isn't delayed by a sleeping capture loop.
                 if (_inputActivity) { _inputActivity = false; idleFrames = 0; }
+
+                // Replay queued input here, on the thread attached to the current input desktop, so it
+                // lands on the login/secure desktop too (agent mode). Empty otherwise.
+                while (_inputQueue.TryDequeue(out var doInput)) { try { doInput(); } catch { } }
 
                 CapturedFrame? frame;
                 long captureMs;

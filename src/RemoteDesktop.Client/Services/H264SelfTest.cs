@@ -125,6 +125,26 @@ internal static class H264SelfTest
             {
                 Line("Terhubung. Menggerakkan kursor host untuk memaksa perubahan layar, ukur ~6 detik…");
                 var sw = Stopwatch.StartNew();
+                if (res == "clicktest")
+                {
+                    // Safe login-screen input test: click the OTHER user tile ("untuk_remote", lower
+                    // left) — switching users is a clear visible change that proves input reaches the
+                    // secure desktop, without touching any PIN field.
+                    ushort nx = (ushort)(110.0 / cfgW * 65535), ny = (ushort)(712.0 / cfgH * 65535);
+                    for (int k = 0; k < 30 && sw.Elapsed < TimeSpan.FromSeconds(7); k++)
+                    {
+                        conn.SendMouseMove(new MouseMoveEvent(nx, ny));
+                        if (k == 4)
+                        {
+                            conn.SendMouseButton(new MouseButtonEvent(MouseButton.Left, true, nx, ny));
+                            await Task.Delay(30);
+                            conn.SendMouseButton(new MouseButtonEvent(MouseButton.Left, false, nx, ny));
+                        }
+                        conn.RequestKeyFrame(); // force a full frame so the composite shows the whole screen
+                        await Task.Delay(150);
+                    }
+                }
+                else {
                 const ushort VK_LWIN = 0x5B, VK_BACK = 0x08;
                 // Open Start once, then type/erase continuously in its search box — a steady stream of
                 // real content repaints (not gated like a 300 ms toggle), so the measured client fps
@@ -150,6 +170,7 @@ internal static class H264SelfTest
                 }
                 conn.SendKey(new KeyEventData(0x1B, 0, true, false)); // Esc — close Start
                 conn.SendKey(new KeyEventData(0x1B, 0, false, false));
+                }
 
                 Line($"Codec dinegosiasi : {negotiated}");
                 Line($"Geometri          : {cfgW}x{cfgH}");
