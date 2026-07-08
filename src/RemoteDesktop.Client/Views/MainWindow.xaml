@@ -220,6 +220,19 @@
                         <ComboBoxItem>JPEG (kompatibel)</ComboBoxItem>
                     </ComboBox>
 
+                    <TextBlock DockPanel.Dock="Left" Text="Kualitas" Foreground="{StaticResource Muted}"
+                               VerticalAlignment="Center" Margin="16,0,6,0"
+                               ToolTip="Ketajaman gambar. Lebih tinggi = lebih jernih tapi lebih banyak data. Otomatis menyesuaikan bandwidth."/>
+                    <ComboBox x:Name="SessionQualityBox" Width="130" DockPanel.Dock="Left" SelectedIndex="0"
+                              SelectionChanged="SessionQuality_Changed"
+                              ToolTip="Ketajaman gambar. Lebih tinggi = lebih jernih tapi lebih banyak data.">
+                        <ComboBoxItem>Otomatis</ComboBoxItem>
+                        <ComboBoxItem>Maksimum</ComboBoxItem>
+                        <ComboBoxItem>Tinggi</ComboBoxItem>
+                        <ComboBoxItem>Normal</ComboBoxItem>
+                        <ComboBoxItem>Hemat data</ComboBoxItem>
+                    </ComboBox>
+
                     <Button Content="Ctrl+Alt+Del" Style="{StaticResource Ghost}" DockPanel.Dock="Left" Margin="16,0,0,0" Click="Cad_Click"/>
                     <Button Content="Fullscreen" Style="{StaticResource Ghost}" DockPanel.Dock="Left" Margin="8,0,0,0" Click="Fullscreen_Click"/>
 

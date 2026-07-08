@@ -251,7 +251,7 @@ public partial class MainWindow : Window
             ScaledWidth = scaledW,
             ScaledHeight = scaledH,
             DisplayIndex = displayIndex,
-            Quality = (int)QualitySlider.Value,
+            Quality = QualityChoices[Math.Clamp(SessionQualityBox.SelectedIndex, 0, QualityChoices.Length - 1)],
             ClipboardSync = ClipboardCheck.IsChecked == true,
             BlankHostScreen = BlankScreenCheck.IsChecked == true,
             LockHostInput = LockInputCheck.IsChecked == true,
@@ -351,6 +351,12 @@ public partial class MainWindow : Window
     private void SessionRes_Changed(object sender, SelectionChangedEventArgs e) => ApplyPerformanceSelection();
 
     private void SessionCodec_Changed(object sender, SelectionChangedEventArgs e) => ApplyPerformanceSelection();
+
+    private void SessionQuality_Changed(object sender, SelectionChangedEventArgs e) => ApplyPerformanceSelection();
+
+    // Otomatis, Maksimum, Tinggi, Normal, Hemat data → encoder quality hint (1..100). The host's
+    // adaptive controller still throttles under load, so a high pick never floods a slow link.
+    private static readonly int[] QualityChoices = { 80, 95, 87, 72, 55 };
 
     private void ApplyPerformanceSelection()
     {
