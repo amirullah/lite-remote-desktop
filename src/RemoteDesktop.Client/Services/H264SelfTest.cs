@@ -62,8 +62,12 @@ internal static class H264SelfTest
 
         conn.VideoConfigured += cfg =>
         {
-            negotiated = cfg.Codec; cfgW = cfg.Width; cfgH = cfg.Height;
-            comp = new byte[cfg.Width * cfg.Height * 4];
+            negotiated = cfg.Codec;
+            // Keep the composite across same-size re-announces (the secure-desktop DXGI path re-announces
+            // on ACCESS_LOST); only reallocate when the geometry actually changes.
+            if (comp == null || cfg.Width != cfgW || cfg.Height != cfgH)
+                comp = new byte[cfg.Width * cfg.Height * 4];
+            cfgW = cfg.Width; cfgH = cfg.Height;
         };
         conn.StatReceived += stat => { encoderName = stat.EncoderName; lastStat = stat; };
         conn.FrameReceived += (_, _, tiles, _) =>
@@ -125,7 +129,23 @@ internal static class H264SelfTest
             {
                 Line("Terhubung. Menggerakkan kursor host untuk memaksa perubahan layar, ukur ~6 detik…");
                 var sw = Stopwatch.StartNew();
-                if (res == "clicktest")
+                if (res == "keytest")
+                {
+                    // Type one digit into the PIN field, hold it visible while we capture, then erase it
+                    // (no Enter => no failed sign-in attempt). A visible dot proves keyboard input lands
+                    // on the secure desktop.
+                    await Task.Delay(400);
+                    conn.SendKey(new KeyEventData(0x31, 0, true, false));  // '1' down
+                    conn.SendKey(new KeyEventData(0x31, 0, false, false)); // '1' up
+                    for (int k = 0; k < 20 && sw.Elapsed < TimeSpan.FromSeconds(5); k++)
+                    {
+                        conn.RequestKeyFrame();
+                        await Task.Delay(150);
+                    }
+                    conn.SendKey(new KeyEventData(0x08, 0, true, false));  // Backspace to clear
+                    conn.SendKey(new KeyEventData(0x08, 0, false, false));
+                }
+                else if (res == "clicktest")
                 {
                     // Safe login-screen input test: click the OTHER user tile ("untuk_remote", lower
                     // left) — switching users is a clear visible change that proves input reaches the

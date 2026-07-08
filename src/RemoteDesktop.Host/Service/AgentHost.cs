@@ -20,6 +20,8 @@ internal static class AgentHost
     public static void RunAgent()
     {
         DesktopFollow.Enabled = true;
+        AgentDiag.Enabled = true;
+        AgentDiag.Log($"=== agent start, user={Environment.UserName}, session={Process.GetCurrentProcess().SessionId} ===");
         AppPaths.EnsureRoot();
         using var lf = LoggerFactory.Create(b => b.AddSimpleConsole().SetMinimumLevel(LogLevel.Information));
         var log = lf.CreateLogger("Agent");

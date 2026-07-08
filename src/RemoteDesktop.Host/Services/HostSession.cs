@@ -31,6 +31,7 @@ public sealed class HostSession
     private volatile bool _inputActivity;
     private volatile bool _forceGdi; // set when DXGI proves slower than GDI (virtual GPUs)
     private Thread? _captureThread;
+    private Thread? _inputThread;
     private volatile IReadOnlyList<DisplayInfo> _displays = Array.Empty<DisplayInfo>();
     private int _gdiTargetW, _gdiTargetH; // last source-scale target pushed to the GDI capturer
     // Remote input queued for the capture thread to inject (agent mode only) — see RouteInput.
@@ -176,6 +177,14 @@ public sealed class HostSession
                         captureThread = new Thread(() => CaptureLoop(ct)) { IsBackground = true, Name = "CaptureLoop" };
                         _captureThread = captureThread;
                         captureThread.Start();
+
+                        // Dedicated input thread for agent mode — a clean thread (never touches DXGI/DCs)
+                        // bound to the current input desktop, so SendInput reaches the secure desktop.
+                        if (DesktopFollow.Enabled && _inputThread is null)
+                        {
+                            _inputThread = new Thread(() => InputPumpLoop(ct)) { IsBackground = true, Name = "InputPump" };
+                            _inputThread.Start();
+                        }
                     }
                     break;
 
@@ -226,6 +235,28 @@ public sealed class HostSession
     {
         if (DesktopFollow.Enabled) _inputQueue.Enqueue(inject);
         else inject();
+    }
+
+    /// <summary>
+    /// Dedicated input thread (agent mode). It follows the input desktop on a clean thread and replays
+    /// queued remote input there, so SendInput actually lands on the login/lock/UAC secure desktop.
+    /// </summary>
+    private void InputPumpLoop(CancellationToken ct)
+    {
+        Service.AgentDiag.Log("input pump started");
+        while (_running && !ct.IsCancellationRequested)
+        {
+            try
+            {
+                DesktopFollow.BindCurrentThreadToInput();
+                int n = 0;
+                while (_inputQueue.TryDequeue(out var doInput)) { try { doInput(); } catch { } n++; }
+                if (n > 0)
+                    Service.AgentDiag.Log($"pump injected {n} on '{Service.AgentDiag.ThreadDesktopName()}'; lastInputAge={Service.AgentDiag.LastInputAgeMs()}ms");
+            }
+            catch { }
+            Thread.Sleep(8);
+        }
     }
 
     private void ApplySettings(SessionSettings s, IReadOnlyList<DisplayInfo> displays)
@@ -341,9 +372,9 @@ public sealed class HostSession
                 // so the first visual response isn't delayed by a sleeping capture loop.
                 if (_inputActivity) { _inputActivity = false; idleFrames = 0; }
 
-                // Replay queued input here, on the thread attached to the current input desktop, so it
-                // lands on the login/secure desktop too (agent mode). Empty otherwise.
-                while (_inputQueue.TryDequeue(out var doInput)) { try { doInput(); } catch { } }
+                // Agent-mode input is injected by a dedicated clean thread (see InputPumpLoop), not
+                // here — the capture thread has touched DXGI/D3D and its SendInput won't reach the
+                // secure desktop.
 
                 CapturedFrame? frame;
                 long captureMs;

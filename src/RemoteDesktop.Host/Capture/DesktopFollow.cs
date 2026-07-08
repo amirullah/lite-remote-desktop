@@ -59,12 +59,33 @@ internal static class DesktopFollow
             if (_currentHandle != IntPtr.Zero) CloseDesktop(_currentHandle);
             _currentHandle = _pendingHandle;
             _current = _pendingName;
+            Service.AgentDiag.Log($"SetThreadDesktop OK -> {_pendingName} (thread now on '{Service.AgentDiag.ThreadDesktopName()}')");
         }
         else
         {
+            Service.AgentDiag.Log($"SetThreadDesktop FAILED -> {_pendingName} err={Marshal.GetLastWin32Error()} (thread stays '{Service.AgentDiag.ThreadDesktopName()}')");
             CloseDesktop(_pendingHandle);
         }
         _pendingHandle = IntPtr.Zero;
+    }
+
+    [ThreadStatic] private static string? _threadDesk;
+
+    /// <summary>
+    /// Bind the CURRENT thread to the current input desktop. Use this from a dedicated, "clean" input
+    /// thread that never creates DCs/windows/D3D — SendInput from such a thread actually reaches the
+    /// Winlogon/secure desktop, whereas a thread that has touched DXGI stays associated with its
+    /// original desktop and its injected input is silently dropped.
+    /// </summary>
+    public static void BindCurrentThreadToInput()
+    {
+        IntPtr h = OpenInputDesktop(0, true,
+            DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS | DESKTOP_CREATEWINDOW | DESKTOP_ENUMERATE | GENERIC_READ);
+        if (h == IntPtr.Zero) return;
+        string name = GetDesktopName(h);
+        if (name.Length == 0 || name == _threadDesk) { CloseDesktop(h); return; }
+        if (SetThreadDesktop(h)) { _threadDesk = name; Service.AgentDiag.Log($"input-thread bound to '{name}'"); }
+        else CloseDesktop(h);
     }
 
     private static string GetDesktopName(IntPtr hDesk)
