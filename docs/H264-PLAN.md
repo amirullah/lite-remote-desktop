@@ -39,12 +39,27 @@ JPEG-tiles tetap fallback universal (VM tanpa encoder hardware, atau negosiasi g
   - Detail asli milestone: 
   - `IMFTransform` decoder H.264 (DXVA hardware bila ada) → NV12 → RGB → WriteableBitmap.
   - Atau MediaEngine/SampleGrabber. Rakit ulang NAL menjadi sample; suapi decoder.
-- [ ] **M3 — Protokol & negosiasi**:
+- [x] **M3 — Protokol & negosiasi** — SELESAI & terbukti end-to-end:
+  - Host menegosiasi codec di `CaptureLoop`: bila klien minta H.264 dan encoder hardware berhasil
+    init untuk geometri saat itu → stream H.264 (satu NAL full-frame per `VideoFrame`, lewat
+    transport tile yang sudah ada); selain itu jatuh mulus ke JpegTiles. `VideoConfig.Codec`
+    membawa codec aktif; `PayloadCodec` sudah serialize field ini.
+  - Klien `FrameSurface` punya cabang H.264 (decode via `H264Decoder` di thread jaringan).
+  - Uji headless `LiteRemote --selftest-h264 <host> <port> <pwd>`: di AMD → codec H264,
+    245/246 frame ter-decode jadi gambar valid, host lapor "H.264 hardware". Default codec tetap
+    JPEG (H.264 hanya saat dipilih), jadi sesi lama tak berubah.
+  - Detail asli milestone: 
   - `VideoCodec.H264` (sudah ada di enum). Host kirim SPS/PPS + frame via `MessageType.VideoFrame`
     (atau tipe baru `H264Frame`). `VideoConfig.Codec=H264` saat encoder tersedia & klien dukung.
   - Fallback otomatis ke JpegTiles bila init encoder/decoder gagal (WAJIB — jangan sampai
     aplikasi rusak).
-- [ ] **M4 — Integrasi**:
+- [x] **M4 — Integrasi & UI** — SELESAI:
+  - Picker Codec di toolbar sesi: **Otomatis / H.264 (hemat data) / JPEG (kompatibel)**. Otomatis
+    & H.264 minta jalur H.264 (host pakai hardware, else fallback JPEG); JPEG paksa universal.
+    Ganti pilihan → negosiasi ulang live + minta keyframe. Status bar tampilkan codec nyata.
+  - Decoder dibungkus paralel NV12→BGRA, blit sama dgn jalur JPEG (terbukti).
+  - Adaptif bitrate H.264 via `EstimateH264Bitrate` (ikut resolusi/fps/quality).
+  - Detail asli milestone: 
   - `HostSession.CaptureLoop`: pilih H264Encoder vs JpegTileEncoder berdasarkan negosiasi.
   - `FrameSurface`/`RemoteConnection`: jalur render H.264.
   - Adaptif: bitrate mengikuti AdaptiveController (bukan quality JPEG).
