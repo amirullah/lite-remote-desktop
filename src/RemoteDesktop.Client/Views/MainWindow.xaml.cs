@@ -255,7 +255,9 @@ public partial class MainWindow : Window
             ClipboardSync = ClipboardCheck.IsChecked == true,
             BlankHostScreen = BlankScreenCheck.IsChecked == true,
             LockHostInput = LockInputCheck.IsChecked == true,
-            PreferredCodec = VideoCodec.JpegTiles,
+            // Otomatis(0) & H.264(1) request H.264 — the host uses its hardware encoder when present
+            // and transparently falls back to JPEG (e.g. in a VM). JPEG(2) forces the universal path.
+            PreferredCodec = SessionCodecBox.SelectedIndex == 2 ? VideoCodec.JpegTiles : VideoCodec.H264,
         };
     }
 
@@ -330,6 +332,8 @@ public partial class MainWindow : Window
     private void SessionFps_Changed(object sender, SelectionChangedEventArgs e) => ApplyPerformanceSelection();
 
     private void SessionRes_Changed(object sender, SelectionChangedEventArgs e) => ApplyPerformanceSelection();
+
+    private void SessionCodec_Changed(object sender, SelectionChangedEventArgs e) => ApplyPerformanceSelection();
 
     private void ApplyPerformanceSelection()
     {

@@ -205,6 +205,16 @@
                         <ComboBoxItem>1024×768</ComboBoxItem>
                     </ComboBox>
 
+                    <TextBlock DockPanel.Dock="Left" Text="Codec" Foreground="{StaticResource Muted}"
+                               VerticalAlignment="Center" Margin="16,0,6,0"/>
+                    <ComboBox x:Name="SessionCodecBox" Width="150" DockPanel.Dock="Left" SelectedIndex="0"
+                              SelectionChanged="SessionCodec_Changed"
+                              ToolTip="Otomatis: H.264 hardware bila didukung (PC fisik), selain itu JPEG. JPEG: paling kompatibel.">
+                        <ComboBoxItem>Otomatis</ComboBoxItem>
+                        <ComboBoxItem>H.264 (hemat data)</ComboBoxItem>
+                        <ComboBoxItem>JPEG (kompatibel)</ComboBoxItem>
+                    </ComboBox>
+
                     <Button Content="Ctrl+Alt+Del" Style="{StaticResource Ghost}" DockPanel.Dock="Left" Margin="16,0,0,0" Click="Cad_Click"/>
                     <Button Content="Fullscreen" Style="{StaticResource Ghost}" DockPanel.Dock="Left" Margin="8,0,0,0" Click="Fullscreen_Click"/>
 
