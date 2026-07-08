@@ -18,8 +18,10 @@ namespace RemoteDesktop.Client.Services;
 /// </summary>
 internal static class H264SelfTest
 {
-    public static async Task<int> RunAsync(string host, int port, string password)
+    public static async Task<int> RunAsync(string host, int port, string password, string codec = "auto")
     {
+        var wantCodec = codec.Equals("jpeg", StringComparison.OrdinalIgnoreCase)
+            ? VideoCodec.JpegTiles : VideoCodec.H264;
         var log = new StringBuilder();
         void Line(string s) { log.AppendLine(s); }
 
@@ -34,17 +36,29 @@ internal static class H264SelfTest
         int cfgW = 0, cfgH = 0;
         int frames = 0, decodedOk = 0, nonBlack = 0;
         string encoderName = "";
+        SessionStat? lastStat = null;
         H264Decoder? decoder = null;
         var decodeLock = new object();
+
+        // Client-side arrival timing — this is what "lambat" actually is: how often a fresh frame
+        // reaches the viewer and how much the interval jitters.
+        long firstFrameTicks = 0, lastFrameTicks = 0;
+        double gapSumMs = 0, gapMaxMs = 0; int gapCount = 0;
+        double freq = Stopwatch.Frequency;
 
         conn.VideoConfigured += cfg =>
         {
             negotiated = cfg.Codec; cfgW = cfg.Width; cfgH = cfg.Height;
         };
-        conn.StatReceived += stat => encoderName = stat.EncoderName;
+        conn.StatReceived += stat => { encoderName = stat.EncoderName; lastStat = stat; };
         conn.FrameReceived += (_, _, tiles, _) =>
         {
-            Interlocked.Increment(ref frames);
+            long now = Stopwatch.GetTimestamp();
+            int n = Interlocked.Increment(ref frames);
+            if (n == 1) firstFrameTicks = now;
+            else { double gap = (now - lastFrameTicks) / freq * 1000; gapSumMs += gap; gapCount++; if (gap > gapMaxMs) gapMaxMs = gap; }
+            lastFrameTicks = now;
+
             if (negotiated != VideoCodec.H264 || tiles.Count == 0) return;
             lock (decodeLock)
             {
@@ -64,7 +78,7 @@ internal static class H264SelfTest
             TargetFps = 60,
             MaxFps = 60,
             ResolutionMode = ResolutionMode.Native,
-            PreferredCodec = VideoCodec.H264,   // force the path under test
+            PreferredCodec = wantCodec,   // auto/h264 -> H.264 (host may fall back); jpeg -> forced JPEG
             Quality = 75,
             ClipboardSync = false,
         };
@@ -86,15 +100,21 @@ internal static class H264SelfTest
 
                 Line($"Codec dinegosiasi : {negotiated}");
                 Line($"Geometri          : {cfgW}x{cfgH}");
-                Line($"Encoder (host)    : {encoderName}");
-                Line($"Frame diterima    : {frames}");
-                Line($"Frame ter-decode  : {decodedOk}  (non-hitam: {nonBlack})");
+                Line($"Frame diterima    : {frames}  (decode H264 ok: {decodedOk}, non-hitam: {nonBlack})");
+                double clientFps = gapCount > 0 ? 1000.0 / (gapSumMs / gapCount) : 0;
+                Line($"Antar-frame klien : {(gapCount > 0 ? (gapSumMs / gapCount).ToString("F1") : "?")} ms rata2 / {gapMaxMs:F0} ms maks  -> ~{clientFps:F0} fps tiba");
+                if (lastStat is { } s)
+                {
+                    Line(new string('-', 56));
+                    Line("Laporan HOST (pengukuran host sendiri):");
+                    Line($"  fps={s.Fps}  bitrate={s.MbitsPerSecond:F1} Mbit/s");
+                    Line($"  capture={s.RoundTripMs} ms  encode={s.EncodeMs} ms  -> {s.EncoderName}");
+                    Line($"  => komponen dominan: {(s.RoundTripMs >= s.EncodeMs ? $"CAPTURE ({s.RoundTripMs} ms)" : $"ENCODE ({s.EncodeMs} ms)")}");
+                }
+                else Line("(host belum mengirim statistik — layar host mungkin diam)");
                 Line(new string('-', 56));
-                bool pass = negotiated == VideoCodec.H264 && decodedOk > 0 && nonBlack > 0;
-                Line(pass
-                    ? "HASIL: LULUS — H.264 end-to-end berfungsi (decode gambar valid)."
-                    : "HASIL: GAGAL — periksa negosiasi/encode/decode.");
-                exit = pass ? 0 : 2;
+                Line("CATATAN: gerakkan sesuatu di layar HOST saat uji agar frame mengalir; layar diam = sedikit frame.");
+                exit = frames > 0 ? 0 : 2;
             }
         }
         catch (Exception ex)

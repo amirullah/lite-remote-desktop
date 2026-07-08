@@ -16,9 +16,10 @@ public partial class App : Application
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             int port = int.TryParse(e.Args[2], out var p) ? p : 7443;
+            string codec = e.Args.Length >= 5 ? e.Args[4] : "auto"; // optional: auto|h264|jpeg
             _ = Task.Run(async () =>
             {
-                int code = await H264SelfTest.RunAsync(e.Args[1], port, e.Args[3]);
+                int code = await H264SelfTest.RunAsync(e.Args[1], port, e.Args[3], codec);
                 Dispatcher.Invoke(() => Shutdown(code));
             });
             return;
