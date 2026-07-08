@@ -114,12 +114,20 @@ public sealed class FrameSurface
         catch { bgra = null; }
         if (bgra is null) return; // decoder still buffering (before the first IDR)
 
-        int w = dec.Width, h = dec.Height, stride = w * 4;
-        int needed = stride * h;
-        var px = ArrayPool<byte>.Shared.Rent(needed);
-        Array.Copy(bgra, px, needed); // decoder reuses its buffer; copy before the next frame overwrites it
+        // H.264 decoders pad the frame up to a macroblock multiple (e.g. 1080 -> 1088). The visible
+        // image is the top-left Width×Height region; the surface bitmap is exactly Width×Height, so we
+        // crop to it. Without this the padded tile is taller than the bitmap and the blit's bounds
+        // guard drops the whole frame — a black screen even though decoding succeeded.
+        int bw = Width, bh = Height;
+        if (bw <= 0 || bh <= 0) return;
+        int dw = dec.Width, dh = dec.Height;
+        int copyW = Math.Min(bw, dw), copyH = Math.Min(bh, dh);
+        int dstStride = bw * 4, srcStride = dw * 4;
+        var px = ArrayPool<byte>.Shared.Rent(dstStride * bh);
+        for (int y = 0; y < copyH; y++)
+            Array.Copy(bgra, y * srcStride, px, y * dstStride, copyW * 4); // copy before the next frame overwrites the decoder buffer
 
-        _pending.Enqueue(new List<DecodedTile>(1) { new DecodedTile(0, 0, w, h, stride, px) });
+        _pending.Enqueue(new List<DecodedTile>(1) { new DecodedTile(0, 0, bw, bh, dstStride, px) });
         if (Interlocked.CompareExchange(ref _drainScheduled, 1, 0) == 0)
             _dispatcher.BeginInvoke(DispatcherPriority.Render, DrainPending);
     }

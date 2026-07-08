@@ -262,10 +262,21 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Turns a preset choice into the stream-size box sent to the host.</summary>
-    private static (ResolutionMode Mode, int W, int H) ResolveResolution(int resIndex, int displayIndex)
+    private (ResolutionMode Mode, int W, int H) ResolveResolution(int resIndex, int displayIndex)
     {
         var (w, h) = ResChoices[Math.Clamp(resIndex, 0, ResChoices.Length - 1)];
-        return w == 0 ? (ResolutionMode.Native, 0, 0) : (ResolutionMode.Scaled, w, h);
+        if (w == 0) return (ResolutionMode.Native, 0, 0); // "Default"
+
+        // Never upscale: a preset larger than the host monitor would stretch a small screen up to a
+        // bigger frame and look torn/blurry. If the chosen size meets or exceeds native, just stream
+        // native (sharpest). Scaling only ever shrinks.
+        if (displayIndex >= 0 && displayIndex < _displays.Count)
+        {
+            var d = _displays[displayIndex];
+            if (d.Width > 0 && d.Height > 0 && w >= d.Width && h >= d.Height)
+                return (ResolutionMode.Native, 0, 0);
+        }
+        return (ResolutionMode.Scaled, w, h);
     }
 
     private async void PushSettings()
@@ -283,6 +294,12 @@ public partial class MainWindow : Window
             DisplayBox.Items.Add($"#{d.Index} {d.Width}×{d.Height}{(d.IsPrimary ? " (primary)" : "")}");
         DisplayBox.SelectedIndex = Math.Min(_settings.DisplayIndex, displays.Count - 1);
         DisplayBox.SelectionChanged += Display_Changed;
+
+        // A single-monitor host has nothing to pick — hiding the picker (and its resolution number)
+        // removes the confusion with the separate "Res" control. It reappears with 2+ monitors.
+        var vis = displays.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        MonitorLabel.Visibility = vis;
+        DisplayBox.Visibility = vis;
     }
 
     // ---------------- UI event handlers ----------------
