@@ -22,7 +22,6 @@ public sealed class AdaptiveController
     private int _currentQuality;
     private double _emaEncodeMs;
     private double _emaBytesPerFrame;
-    private volatile bool _backpressure;
 
     public AdaptiveController(SessionSettings settings, int displayRefreshHz)
     {
@@ -42,14 +41,15 @@ public sealed class AdaptiveController
             _currentFps = Math.Max(1, settings.TargetFps);
     }
 
-    /// <summary>The outbound queue rejected a frame — the link (or TLS write path) is saturated.</summary>
-    public void NotifyBackpressure() => _backpressure = true;
-
     public int CurrentFps => _currentFps;
     public int CurrentQuality => _currentQuality;
     public TimeSpan FrameInterval => TimeSpan.FromMilliseconds(1000.0 / Math.Max(1, _currentFps));
 
-    /// <summary>Feed back the cost of the frame we just sent so the next interval can adapt.</summary>
+    /// <summary>
+    /// Feed back the cost of the frame we just sent so the next interval can adapt. Network
+    /// backpressure no longer needs an explicit signal: the transport blocks the encode thread when
+    /// the link is behind, so a slow link shows up directly as a higher wall-clock frame time.
+    /// </summary>
     public void Observe(int encodeMs, int frameBytes, double linkMbps)
     {
         _emaEncodeMs = _emaEncodeMs == 0 ? encodeMs : _emaEncodeMs * 0.8 + encodeMs * 0.2;
@@ -57,16 +57,9 @@ public sealed class AdaptiveController
 
         if (_settings.FrameRateMode == FrameRateMode.Fixed)
         {
-            // User owns fps; quality still sheds under real pressure so the rate stays honest.
-            if (_backpressure)
-            {
-                _backpressure = false;
-                _currentQuality = Math.Max(35, _currentQuality - 5);
-            }
-            else if (_currentQuality < _settings.Quality)
-            {
+            // User owns fps; nudge quality back up toward their target when there's room.
+            if (_currentQuality < _settings.Quality)
                 _currentQuality = Math.Min(_settings.Quality, _currentQuality + 1);
-            }
             return;
         }
 
@@ -74,14 +67,6 @@ public sealed class AdaptiveController
 
         // Never schedule frames faster than we can encode them (15% headroom).
         int target = _emaEncodeMs > 0.1 ? (int)(1000.0 / (_emaEncodeMs * 1.15)) : ceiling;
-
-        if (_backpressure)
-        {
-            _backpressure = false;
-            target = Math.Min(target, Math.Max(10, _currentFps / 2));
-            _currentQuality = Math.Max(35, _currentQuality - 5);
-        }
-
         target = Math.Clamp(target, 10, ceiling);
 
         // Drop quickly when constrained, climb briskly when there's headroom.

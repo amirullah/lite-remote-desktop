@@ -7,30 +7,45 @@ namespace RemoteDesktop.Shared.Net;
 
 /// <summary>
 /// Full-duplex, framed message transport over any <see cref="Stream"/> (typically an
-/// <c>SslStream</c>). Reads and writes are decoupled through bounded channels so a slow
-/// consumer never blocks the socket read loop, and vice-versa.
+/// <c>SslStream</c>). Reads and writes are decoupled so a slow consumer never blocks the socket
+/// read loop.
 ///
-/// The write side coalesces onto a single background pump so concurrent producers
-/// (video thread, input thread, clipboard) never interleave partial frames.
+/// The write side splits traffic into two lanes, and this is the single most important thing for
+/// perceived latency:
+///
+///   • <b>Control lane</b> (auth, settings, input, clipboard, keyframe requests, pong) — unbounded,
+///     lossless, and always drained first so a keystroke or settings change is never stuck behind
+///     video bytes.
+///   • <b>Video lane</b> — a <i>shallow</i> bounded queue (2 frames). Because the codec is a dirty-
+///     tile delta stream, frames must not be dropped (a lost delta leaves stale pixels), so instead
+///     the queue applies backpressure: when the link can't keep up, the encoder blocks on send and
+///     naturally slows to the link's rate. That caps end-to-end latency at ~2 frames instead of
+///     letting hundreds pile into a queue the viewer then trails seconds behind.
+///
+/// The old design used a single 256-deep queue for everything; on any link slower than the encoder
+/// that buffered multiple seconds of video — the host drew instantly but the viewer lagged far
+/// behind. A depth of 2 keeps just enough slack to overlap "encode N+1" with "send N".
 /// </summary>
 public sealed class MessageChannel : IAsyncDisposable
 {
+    private const int VideoQueueDepth = 2;
+
     private readonly Stream _stream;
-    private readonly Channel<Message> _outbound;
+    private readonly Channel<Message> _control;
+    private readonly Channel<Message> _video;
     private readonly Channel<Message> _inbound;
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _readLoop;
     private readonly Task _writeLoop;
 
-    public MessageChannel(Stream stream, int outboundCapacity = 256, int inboundCapacity = 256)
+    public MessageChannel(Stream stream, int inboundCapacity = 256)
     {
         _stream = stream;
 
-        // Video frames are droppable-latest under pressure; control messages must not be lost.
-        // We keep the queue bounded and let the host's encoder throttle instead of unbounded growth.
-        _outbound = Channel.CreateBounded<Message>(new BoundedChannelOptions(outboundCapacity)
+        _control = Channel.CreateUnbounded<Message>(new UnboundedChannelOptions { SingleReader = true });
+        _video = Channel.CreateBounded<Message>(new BoundedChannelOptions(VideoQueueDepth)
         {
-            FullMode = BoundedChannelFullMode.Wait,
+            FullMode = BoundedChannelFullMode.Wait, // backpressure the encoder, never drop a delta
             SingleReader = true,
         });
         _inbound = Channel.CreateBounded<Message>(new BoundedChannelOptions(inboundCapacity)
@@ -46,34 +61,90 @@ public sealed class MessageChannel : IAsyncDisposable
     /// <summary>Stream of decoded inbound messages. Payload buffers are rented — copy what you keep.</summary>
     public ChannelReader<Message> Inbound => _inbound.Reader;
 
-    /// <summary>Enqueue a message for sending. Awaits if the outbound queue is momentarily full.</summary>
+    /// <summary>Enqueue a control message (lossless, ordered, high priority).</summary>
     public ValueTask SendAsync(Message message, CancellationToken ct = default)
-        => _outbound.Writer.WriteAsync(message, ct);
+    {
+        if (message.Type == MessageType.VideoFrame) return SendVideoAsync(message, ct);
+        _control.Writer.TryWrite(message);
+        return ValueTask.CompletedTask;
+    }
 
-    /// <summary>Best-effort send that drops the message if the queue is full (used for video frames).</summary>
-    public bool TrySend(Message message) => _outbound.Writer.TryWrite(message);
+    /// <summary>
+    /// Send a message. Control messages are queued losslessly and return immediately. Video frames
+    /// go through the shallow video lane and <b>block</b> the caller when it is full — this is the
+    /// backpressure that keeps the encoder from running ahead of the link. Returns false only if the
+    /// channel is shutting down.
+    /// </summary>
+    public bool TrySend(Message message)
+    {
+        if (message.Type != MessageType.VideoFrame)
+        {
+            return _control.Writer.TryWrite(message);
+        }
+        try
+        {
+            // Synchronous blocking wait: the caller is the dedicated capture/encode thread, and
+            // blocking it here is exactly the throttle we want.
+            SendVideoAsync(message, _cts.Token).AsTask().GetAwaiter().GetResult();
+            return true;
+        }
+        catch
+        {
+            return false; // cancelled / faulted — let the caller recycle its buffer
+        }
+    }
+
+    private ValueTask SendVideoAsync(Message message, CancellationToken ct)
+        => _video.Writer.WriteAsync(message, ct);
 
     private async Task WriteLoopAsync()
     {
         var header = new byte[Framing.HeaderSize];
+        Task<bool>? ctrlWait = null, videoWait = null;
         try
         {
-            await foreach (var msg in _outbound.Reader.ReadAllAsync(_cts.Token).ConfigureAwait(false))
+            while (!_cts.IsCancellationRequested)
             {
-                Framing.WriteHeader(header, msg.Type, msg.Length);
-                await _stream.WriteAsync(header, _cts.Token).ConfigureAwait(false);
-                if (msg.Length > 0)
-                    await _stream.WriteAsync(msg.Payload.AsMemory(0, msg.Length), _cts.Token).ConfigureAwait(false);
-                await _stream.FlushAsync(_cts.Token).ConfigureAwait(false);
+                // Recreate only the lane wait that has been consumed, so we don't pile up abandoned
+                // WaitToReadAsync registrations on the channels.
+                ctrlWait ??= _control.Reader.WaitToReadAsync(_cts.Token).AsTask();
+                videoWait ??= _video.Reader.WaitToReadAsync(_cts.Token).AsTask();
+                await Task.WhenAny(ctrlWait, videoWait).ConfigureAwait(false);
 
-                // Return pooled payloads once they are safely on the wire.
-                if (msg.Payload.Length > 0 && msg.Type is MessageType.VideoFrame)
-                    ArrayPool<byte>.Shared.Return(msg.Payload);
+                // Always flush all pending control first (never starve input/keyframe behind video).
+                if (ctrlWait.IsCompleted)
+                {
+                    ctrlWait = null;
+                    while (_control.Reader.TryRead(out var ctrl))
+                        await WriteOneAsync(header, ctrl, recycle: false).ConfigureAwait(false);
+                }
+
+                // Then send at most one video frame per pass.
+                if (videoWait.IsCompleted)
+                {
+                    videoWait = null;
+                    if (_video.Reader.TryRead(out var video))
+                        await WriteOneAsync(header, video, recycle: true).ConfigureAwait(false);
+                }
             }
         }
         catch (OperationCanceledException) { }
         catch (IOException) { Fault(); }
         catch (ObjectDisposedException) { }
+    }
+
+    private async Task WriteOneAsync(byte[] header, Message msg, bool recycle)
+    {
+        Framing.WriteHeader(header, msg.Type, msg.Length);
+        await _stream.WriteAsync(header, _cts.Token).ConfigureAwait(false);
+        if (msg.Length > 0)
+            await _stream.WriteAsync(msg.Payload.AsMemory(0, msg.Length), _cts.Token).ConfigureAwait(false);
+        // Flush every message so it hits the wire immediately — latency over throughput.
+        await _stream.FlushAsync(_cts.Token).ConfigureAwait(false);
+
+        // Video payloads are pooled; return them once safely on the wire.
+        if (recycle && msg.Payload.Length > 0)
+            ArrayPool<byte>.Shared.Return(msg.Payload);
     }
 
     private async Task ReadLoopAsync()
@@ -88,8 +159,6 @@ public sealed class MessageChannel : IAsyncDisposable
                 if (length < 0 || length > Framing.MaxPayloadSize)
                     throw new InvalidDataException($"Frame length {length} out of bounds for {type}.");
 
-                // Inbound buffers are handed to consumers and not pooled — the exact-size array is
-                // owned by the consumer and collected normally. (Outbound video frames use the pool.)
                 byte[] payload = length == 0 ? Array.Empty<byte>() : new byte[length];
                 if (length > 0)
                     await ReadExactAsync(payload.AsMemory(0, length), _cts.Token).ConfigureAwait(false);
@@ -116,12 +185,17 @@ public sealed class MessageChannel : IAsyncDisposable
         }
     }
 
-    private void Fault() => _outbound.Writer.TryComplete();
+    private void Fault()
+    {
+        _control.Writer.TryComplete();
+        _video.Writer.TryComplete();
+    }
 
     public async ValueTask DisposeAsync()
     {
         _cts.Cancel();
-        _outbound.Writer.TryComplete();
+        _control.Writer.TryComplete();
+        _video.Writer.TryComplete();
         try { await Task.WhenAll(_readLoop, _writeLoop).ConfigureAwait(false); } catch { }
         _cts.Dispose();
         await _stream.DisposeAsync().ConfigureAwait(false);

@@ -342,6 +342,9 @@ public sealed class HostSession
                 _keyFrameRequested = false;
 
                 var tiles = encoder.Encode(frame, wantKey, out bool wasKey);
+                // Pure encode cost, measured before the (possibly blocking) send so the stat and the
+                // adaptive controller see real compression time, not network wait.
+                int encodeMs = (int)sw.ElapsedMilliseconds;
                 if (tiles.Count == 0)
                 {
                     PaceFrame(sw, adaptive);
@@ -355,18 +358,15 @@ public sealed class HostSession
                 var flags = wasKey ? FrameFlags.KeyFrame : FrameFlags.None;
                 var frameMsg = VideoFrameCodec.Encode(frameId++, flags, tiles);
                 int frameBytes = frameMsg.Length;
-                // If the outbound queue is saturated we drop this frame — but must return its pooled
-                // buffer ourselves, since the write pump only recycles frames it actually sent. The
-                // encoder already recorded these tiles as "sent", so force a full refresh next frame
-                // to avoid leaving stale regions on the client.
+                // The channel's shallow video lane blocks here when the link is behind (backpressure),
+                // so the encoder can't outrun the wire and latency stays bounded. It only returns
+                // false while shutting down, in which case we recycle the buffer ourselves.
                 if (!_channel.TrySend(frameMsg))
                 {
                     System.Buffers.ArrayPool<byte>.Shared.Return(frameMsg.Payload);
                     _keyFrameRequested = true;
-                    adaptive.NotifyBackpressure();
                 }
 
-                int encodeMs = (int)sw.ElapsedMilliseconds;
                 AccountBandwidth(frameBytes);
                 adaptive.Observe(encodeMs, frameBytes, _measuredMbps);
 
