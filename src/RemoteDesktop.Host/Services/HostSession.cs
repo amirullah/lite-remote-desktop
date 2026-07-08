@@ -250,9 +250,12 @@ public sealed class HostSession
         // (VMs, RDP) that alone nearly doubles the frame rate.
         IScreenCapture? pendingOwner = null;
         Task<(CapturedFrame? Frame, long Ms)>? pendingCapture = null;
-        // Rolling capture-cost estimate, sampled only while the screen is busy (so DXGI's blocking
-        // wait-for-change on an idle screen doesn't count as "slow").
-        double captureEmaMs = 0;
+        // Best-case capture cost seen while the screen is busy. We key the DXGI→GDI demotion off the
+        // MINIMUM (not an average) because that isolates the true readback floor from wait-for-change
+        // and one-off spikes: a fast GPU whose DXGI occasionally stalls (e.g. 0.1 ms typical, rare
+        // 117 ms) must stay on DXGI, while a virtual GPU whose *fastest* grab is still ~150 ms is
+        // genuinely slow and should fall back to GDI.
+        double captureMinMs = double.MaxValue;
         int captureSamples = 0;
 
         // Wait for an in-flight pipelined capture to finish. Must run before disposing the capture
@@ -280,7 +283,7 @@ public sealed class HostSession
                     _capture?.Dispose();
                     _capture = CreateCapture(wantDisplay);
                     _adaptive = new AdaptiveController(settings, wantDisplay.RefreshHz);
-                    captureEmaMs = 0;
+                    captureMinMs = double.MaxValue;
                     captureSamples = 0;
                     _gdiTargetW = _gdiTargetH = -1; // force the source-scale target to re-apply
                     _keyFrameRequested = true;
@@ -433,25 +436,27 @@ public sealed class HostSession
                 adaptive.Observe(encodeMs, frameBytes, _measuredMbps);
 
                 // Judge the capture backend only under motion: many dirty tiles means the acquire
-                // returned immediately, so the measured time is real capture/readback cost. On
-                // virtual GPUs (VMware/VirtualBox) DXGI duplication readback can take hundreds of
-                // milliseconds — far worse than plain GDI — so demote it when it proves slow.
+                // returned immediately, so the measured time is real capture/readback cost. Demote
+                // DXGI→GDI only when even the FASTEST recent grab is slow — that means the readback
+                // itself is expensive (a virtual GPU at ~150 ms), not just an occasional stall on a
+                // fast GPU. Keying off the minimum (over a longer window) stops us from wrongly
+                // dropping a healthy DXGI (0.1 ms typical) to a slower GDI path just because of a spike.
                 if (tiles.Count >= 8)
                 {
-                    captureEmaMs = captureEmaMs == 0 ? captureMs : captureEmaMs * 0.8 + captureMs * 0.2;
+                    if (captureMs < captureMinMs) captureMinMs = captureMs;
                     captureSamples++;
-                    if (!_forceGdi && captureSamples >= 10 && captureEmaMs > 60 &&
+                    if (!_forceGdi && captureSamples >= 30 && captureMinMs > 60 &&
                         capture.BackendName.StartsWith("DXGI", StringComparison.Ordinal))
                     {
                         _log.LogWarning(
-                            "DXGI capture averages {Ms:F0} ms — slow virtual GPU readback; switching to GDI.",
-                            captureEmaMs);
+                            "DXGI best-case capture {Ms:F0} ms — genuinely slow readback; switching to GDI.",
+                            captureMinMs);
                         _forceGdi = true;
                         DrainPending();
                         var display = capture.Display;
                         capture.Dispose();
                         _capture = CreateCapture(display);
-                        captureEmaMs = 0;
+                        captureMinMs = double.MaxValue;
                         captureSamples = 0;
                         _gdiTargetW = _gdiTargetH = -1; // re-apply source-scale to the new GDI capturer
                         _keyFrameRequested = true;

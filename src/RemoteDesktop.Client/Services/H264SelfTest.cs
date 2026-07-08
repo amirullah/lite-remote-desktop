@@ -105,18 +105,31 @@ internal static class H264SelfTest
             {
                 Line("Terhubung. Menggerakkan kursor host untuk memaksa perubahan layar, ukur ~6 detik…");
                 var sw = Stopwatch.StartNew();
-                int i = 0;
-                const ushort VK_LWIN = 0x5B;
+                const ushort VK_LWIN = 0x5B, VK_BACK = 0x08;
+                // Open Start once, then type/erase continuously in its search box — a steady stream of
+                // real content repaints (not gated like a 300 ms toggle), so the measured client fps
+                // reflects the true capture→encode→render throughput, not our input cadence.
+                conn.SendKey(new KeyEventData(VK_LWIN, 0, true, true));
+                conn.SendKey(new KeyEventData(VK_LWIN, 0, false, true));
+                await Task.Delay(500);
+                var letters = new ushort[] { 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48 }; // A..H
                 while (sw.Elapsed < TimeSpan.FromSeconds(6))
                 {
-                    // Toggle the Start menu (Win key) — a guaranteed full-screen repaint on any Windows
-                    // host, so we get representative capture/encode numbers. Also proves whether input
-                    // injection reaches the host at all (no repaint => input isn't landing).
-                    i++;
-                    conn.SendKey(new KeyEventData(VK_LWIN, 0, true, true));
-                    conn.SendKey(new KeyEventData(VK_LWIN, 0, false, true));
-                    await Task.Delay(300);
+                    foreach (var vk in letters)
+                    {
+                        conn.SendKey(new KeyEventData(vk, 0, true, false));
+                        conn.SendKey(new KeyEventData(vk, 0, false, false));
+                        await Task.Delay(25);
+                    }
+                    for (int b = 0; b < letters.Length; b++)
+                    {
+                        conn.SendKey(new KeyEventData(VK_BACK, 0, true, false));
+                        conn.SendKey(new KeyEventData(VK_BACK, 0, false, false));
+                        await Task.Delay(25);
+                    }
                 }
+                conn.SendKey(new KeyEventData(0x1B, 0, true, false)); // Esc — close Start
+                conn.SendKey(new KeyEventData(0x1B, 0, false, false));
 
                 Line($"Codec dinegosiasi : {negotiated}");
                 Line($"Geometri          : {cfgW}x{cfgH}");
