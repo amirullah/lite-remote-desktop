@@ -88,6 +88,19 @@ internal static class DesktopFollow
         else CloseDesktop(h);
     }
 
+    /// <summary>The desktop the CURRENT thread bound itself to via <see cref="BindCurrentThreadToInput"/>.</summary>
+    public static string? BoundThreadDesktop => _threadDesk;
+
+    /// <summary>Read the current input-desktop name without switching to it (no side effects).</summary>
+    public static string CurrentInputDesktopName()
+    {
+        IntPtr h = OpenInputDesktop(0, true, GENERIC_READ);
+        if (h == IntPtr.Zero) return "";
+        string name = GetDesktopName(h);
+        CloseDesktop(h);
+        return name;
+    }
+
     private static string GetDesktopName(IntPtr hDesk)
     {
         var sb = new byte[256];

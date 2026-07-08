@@ -129,21 +129,40 @@ internal static class H264SelfTest
             {
                 Line("Terhubung. Menggerakkan kursor host untuk memaksa perubahan layar, ukur ~6 detik…");
                 var sw = Stopwatch.StartNew();
-                if (res == "keytest")
+                if (res == "cleartest")
+                {
+                    await Task.Delay(300);
+                    for (int b = 0; b < 8; b++) // erase any typed digits
+                    {
+                        conn.SendKey(new KeyEventData(0x08, 0, true, false));
+                        conn.SendKey(new KeyEventData(0x08, 0, false, false));
+                        await Task.Delay(80);
+                    }
+                    await Task.Delay(400);
+                    conn.RequestKeyFrame();
+                    await Task.Delay(300);
+                }
+                else if (res == "keytest")
                 {
                     // Type one digit into the PIN field, hold it visible while we capture, then erase it
                     // (no Enter => no failed sign-in attempt). A visible dot proves keyboard input lands
                     // on the secure desktop.
                     await Task.Delay(400);
-                    conn.SendKey(new KeyEventData(0x31, 0, true, false));  // '1' down
-                    conn.SendKey(new KeyEventData(0x31, 0, false, false)); // '1' up
-                    for (int k = 0; k < 20 && sw.Elapsed < TimeSpan.FromSeconds(5); k++)
+                    // First key dismisses the lock screen; then type 3 digits — dots appearing in the
+                    // PIN box prove keyboard input reaches the secure desktop. No Enter => no attempt.
+                    foreach (var vk in new ushort[] { 0x20, 0x31, 0x32, 0x33 }) // Space, 1, 2, 3
+                    {
+                        conn.SendKey(new KeyEventData(vk, 0, true, false));
+                        conn.SendKey(new KeyEventData(vk, 0, false, false));
+                        await Task.Delay(250);
+                    }
+                    for (int k = 0; k < 16 && sw.Elapsed < TimeSpan.FromSeconds(6); k++)
                     {
                         conn.RequestKeyFrame();
                         await Task.Delay(150);
                     }
-                    conn.SendKey(new KeyEventData(0x08, 0, true, false));  // Backspace to clear
-                    conn.SendKey(new KeyEventData(0x08, 0, false, false));
+                    // (digits left in the field on purpose so the captured frame shows the dots; a
+                    // separate "cleartest" run erases them afterwards)
                 }
                 else if (res == "clicktest")
                 {

@@ -238,24 +238,38 @@ public sealed class HostSession
     }
 
     /// <summary>
-    /// Dedicated input thread (agent mode). It follows the input desktop on a clean thread and replays
-    /// queued remote input there, so SendInput actually lands on the login/lock/UAC secure desktop.
+    /// Supervises input injection for agent mode. A thread that has ever injected on one desktop cannot
+    /// reliably inject on the secure desktop after switching — the input association stays tainted. So
+    /// we spawn a FRESH worker thread per input desktop: each worker binds cleanly to the current input
+    /// desktop as its first act (which makes SendInput accepted there, proven on the login screen), then
+    /// exits the moment the input desktop changes, and this supervisor spawns a new clean worker.
     /// </summary>
     private void InputPumpLoop(CancellationToken ct)
     {
-        Service.AgentDiag.Log("input pump started");
+        Service.AgentDiag.Log("input supervisor started");
         while (_running && !ct.IsCancellationRequested)
         {
-            try
-            {
-                DesktopFollow.BindCurrentThreadToInput();
-                int n = 0;
-                while (_inputQueue.TryDequeue(out var doInput)) { try { doInput(); } catch { } n++; }
-                if (n > 0)
-                    Service.AgentDiag.Log($"pump injected {n} on '{Service.AgentDiag.ThreadDesktopName()}'; lastInputAge={Service.AgentDiag.LastInputAgeMs()}ms");
-            }
-            catch { }
-            Thread.Sleep(8);
+            var worker = new Thread(() => InputWorker(ct)) { IsBackground = true, Name = "InputWorker" };
+            worker.Start();
+            worker.Join();
+            Thread.Sleep(40);
+        }
+    }
+
+    private void InputWorker(CancellationToken ct)
+    {
+        DesktopFollow.BindCurrentThreadToInput();
+        string bound = DesktopFollow.BoundThreadDesktop ?? "";
+        if (bound.Length == 0) { Thread.Sleep(120); return; } // couldn't bind; supervisor retries
+        while (_running && !ct.IsCancellationRequested)
+        {
+            // The input desktop changed (lock/unlock/UAC) — exit so a fresh clean worker binds to it.
+            if (DesktopFollow.CurrentInputDesktopName() != bound) return;
+            int n = 0;
+            while (_inputQueue.TryDequeue(out var doInput)) { try { doInput(); } catch { } n++; }
+            if (n > 0)
+                Service.AgentDiag.Log($"worker injected {n} on '{bound}'; lastInputAge={Service.AgentDiag.LastInputAgeMs()}ms");
+            Thread.Sleep(6);
         }
     }
 
