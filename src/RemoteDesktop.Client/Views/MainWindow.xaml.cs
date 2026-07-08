@@ -51,6 +51,12 @@ public partial class MainWindow : Window
         InitializeComponent();
         RelayBox.Text = _config.RelayAddress;
         if (!string.IsNullOrEmpty(_config.GoogleClientId)) GoogleClientIdBox.Text = _config.GoogleClientId;
+        // Pre-fill the address from the last successful connection so reconnecting is one click.
+        if (_config.Recent.Count > 0 && !string.IsNullOrWhiteSpace(_config.Recent[0].Host))
+        {
+            HostBox.Text = _config.Recent[0].Host;
+            PortBox.Text = _config.Recent[0].Port.ToString();
+        }
         Loaded += (_, _) => _clipboard = new ClipboardBridge(this);
         Closing += (_, _) => Cleanup();
     }

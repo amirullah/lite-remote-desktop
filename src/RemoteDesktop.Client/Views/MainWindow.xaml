@@ -48,15 +48,15 @@
                             <Border Background="{StaticResource Bg}" CornerRadius="10" Padding="4"
                                     BorderBrush="{StaticResource Stroke}" BorderThickness="1">
                                 <UniformGrid Rows="1" Columns="2">
-                                    <RadioButton x:Name="ModeIdRadio" GroupName="mode" Style="{StaticResource Segment}"
-                                                 Content="Connect by ID" IsChecked="True" Checked="Mode_Changed"/>
                                     <RadioButton x:Name="ModeAddrRadio" GroupName="mode" Style="{StaticResource Segment}"
-                                                 Content="By address" Checked="Mode_Changed"/>
+                                                 Content="By address" IsChecked="True" Checked="Mode_Changed"/>
+                                    <RadioButton x:Name="ModeIdRadio" GroupName="mode" Style="{StaticResource Segment}"
+                                                 Content="Connect by ID" Checked="Mode_Changed"/>
                                 </UniformGrid>
                             </Border>
 
                             <!-- ID mode -->
-                            <StackPanel x:Name="IdModePanel" Margin="0,18,0,0">
+                            <StackPanel x:Name="IdModePanel" Margin="0,18,0,0" Visibility="Collapsed">
                                 <TextBlock Text="PARTNER ID" Style="{StaticResource Label}"/>
                                 <TextBox x:Name="IdBox" FontSize="22" FontWeight="SemiBold"
                                          Padding="12,10" Text=""/>
@@ -65,7 +65,7 @@
                             </StackPanel>
 
                             <!-- address mode -->
-                            <Grid x:Name="AddrModePanel" Margin="0,18,0,0" Visibility="Collapsed">
+                            <Grid x:Name="AddrModePanel" Margin="0,18,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="3*"/>
                                     <ColumnDefinition Width="12"/>
