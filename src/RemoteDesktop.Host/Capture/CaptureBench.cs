@@ -12,6 +12,8 @@ namespace RemoteDesktop.Host;
 /// </summary>
 internal static class CaptureBench
 {
+    private static readonly System.Text.StringBuilder _log = new();
+
     public static void Run()
     {
         // Ensure there is a console to print to even though this is a WinExe.
@@ -19,10 +21,10 @@ internal static class CaptureBench
 
         var displays = GdiScreenCapture.EnumerateDisplays();
         var primary = displays.FirstOrDefault(d => d.IsPrimary) ?? displays[0];
-        Console.WriteLine();
-        Console.WriteLine($"LiteRemote capture benchmark — display {primary.Width}x{primary.Height}");
-        Console.WriteLine("Each row: average / best / worst milliseconds per grab over 60 frames.");
-        Console.WriteLine(new string('-', 64));
+        Line("");
+        Line($"LiteRemote capture benchmark ({ThisVersion()}) — display {primary.Width}x{primary.Height}");
+        Line("Each row: average / best / worst milliseconds per grab over 60 frames.");
+        Line(new string('-', 64));
 
         BenchGdi("GDI native", primary, 0, 0);
         BenchGdi("GDI -> 1280x720", primary, 1280, 720);
@@ -36,15 +38,35 @@ internal static class CaptureBench
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"DXGI native      : unavailable ({ex.GetType().Name})");
+            Line($"DXGI native      : unavailable ({ex.GetType().Name})");
         }
 #endif
 
-        Console.WriteLine(new string('-', 64));
-        Console.WriteLine("Lower is better. In a VM, 'GDI -> smaller' should be markedly faster than");
-        Console.WriteLine("native — that is the source-scale capture doing less GPU readback.");
-        Console.WriteLine("Tip: if native GDI is very slow (>60ms), turn OFF 'Accelerate 3D graphics'");
-        Console.WriteLine("in the VM's Display settings — it usually cuts this several-fold.");
+        Line(new string('-', 64));
+        Line("Lower is better. In a VM, 'GDI -> smaller' should be markedly faster than");
+        Line("native — that is the source-scale capture doing less GPU readback.");
+        Line("Tip: if native GDI is very slow (>60ms), turn OFF 'Accelerate 3D graphics'");
+        Line("in the VM's Display settings — it usually cuts this several-fold.");
+
+        // Persist so a launcher script can read the result even though this is a GUI subsystem exe
+        // whose console output can't be piped reliably.
+        try
+        {
+            var path = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "litebench-result.txt");
+            System.IO.File.WriteAllText(path, _log.ToString());
+            Console.WriteLine($"(saved to {path})");
+        }
+        catch { }
+    }
+
+    private static string ThisVersion() =>
+        System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "?";
+
+    private static void Line(string s)
+    {
+        _log.AppendLine(s);
+        Console.WriteLine(s);
     }
 
     private static void BenchGdi(string label, Shared.Models.DisplayInfo display, int tw, int th)
@@ -71,7 +93,7 @@ internal static class CaptureBench
             best = Math.Min(best, ms);
             worst = Math.Max(worst, ms);
         }
-        Console.WriteLine($"{label,-17}: {sum / n,6:F1} / {best,6:F1} / {worst,6:F1} ms");
+        Line($"{label,-17}: {sum / n,6:F1} / {best,6:F1} / {worst,6:F1} ms");
     }
 
     [System.Runtime.InteropServices.DllImport("kernel32.dll")]
