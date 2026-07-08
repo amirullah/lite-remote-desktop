@@ -265,10 +265,7 @@ public sealed class HostSession
         {
             // The input desktop changed (lock/unlock/UAC) — exit so a fresh clean worker binds to it.
             if (DesktopFollow.CurrentInputDesktopName() != bound) return;
-            int n = 0;
-            while (_inputQueue.TryDequeue(out var doInput)) { try { doInput(); } catch { } n++; }
-            if (n > 0)
-                Service.AgentDiag.Log($"worker injected {n} on '{bound}'; lastInputAge={Service.AgentDiag.LastInputAgeMs()}ms");
+            while (_inputQueue.TryDequeue(out var doInput)) { try { doInput(); } catch { } }
             Thread.Sleep(6);
         }
     }
