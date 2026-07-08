@@ -53,6 +53,7 @@ public partial class App : Application
 
     private void OnUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
+        Services.Diag.Log("UNHANDLED: " + e.Exception);
         MessageBox.Show($"Unexpected error:\n\n{e.Exception.Message}", "LiteRemote",
             MessageBoxButton.OK, MessageBoxImage.Warning);
         e.Handled = true;

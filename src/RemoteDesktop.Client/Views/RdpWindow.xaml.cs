@@ -15,25 +15,61 @@ public partial class RdpWindow : Window
     private readonly RdpHost _rdp = new();
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private bool _wasConnected;
+    private bool _rdpReady;   // true once the ActiveX control is attached & created without error
 
     public RdpWindow(string host, string? user = null)
     {
         InitializeComponent();
-        FormsHost.Child = _rdp;
+        // NOTE: the ActiveX child is intentionally NOT attached here. AxHost creates its OLE object
+        // lazily, and if we attach it in the ctor that creation happens later during an async layout
+        // pass — after Show() returns — so any failure escapes Rdp_Click's try/catch and lands in the
+        // global DispatcherUnhandledException handler, leaving a broken/empty window. We attach it in
+        // OnLoaded (below), where the window handle already exists and we can catch failure while
+        // keeping the window visible.
         HostBox.Text = host ?? string.Empty;
         UserBox.Text = user ?? string.Empty;
 
         _poll.Tick += (_, _) => UpdateConnectionState();
-        Loaded += (_, _) => { _poll.Start(); if (string.IsNullOrWhiteSpace(UserBox.Text)) UserBox.Focus(); else PassBox.Focus(); };
+        Loaded += OnLoaded;
         Closed += (_, _) =>
         {
             _poll.Stop();
-            try { if (_rdp.IsConnected) _rdp.Ocx.Disconnect(); } catch { /* control tearing down */ }
+            try { if (_rdpReady && _rdp.IsConnected) _rdp.Ocx.Disconnect(); } catch { /* control tearing down */ }
         };
+    }
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            // Bracket the attach with ISupportInitialize (AxHost honours this) and force the OLE
+            // object to be created NOW, while the window handle is live and we can catch failure.
+            var init = (System.ComponentModel.ISupportInitialize)_rdp;
+            init.BeginInit();
+            FormsHost.Child = _rdp;
+            init.EndInit();
+            _rdp.CreateControl();   // realise the child HWND + instantiate the mstscax OLE object
+            _ = _rdp.Ocx;           // dereference once so a missing/unregistered control throws here
+            _rdpReady = true;
+        }
+        catch (Exception ex)
+        {
+            // The control could not load (e.g. mstscax not registered on this machine). Keep the
+            // window on screen with a clear message instead of a silent no-op / generic crash dialog.
+            Services.Diag.Log("RdpWindow Loaded: ActiveX FAILED: " + ex);
+            ConnectBtn.IsEnabled = false;
+            DisconnectBtn.IsEnabled = false;
+            Status("Kontrol Windows RDP tidak tersedia di PC ini: " + ex.Message);
+            return;
+        }
+
+        _poll.Start();
+        if (string.IsNullOrWhiteSpace(UserBox.Text)) UserBox.Focus(); else PassBox.Focus();
     }
 
     private void Connect_Click(object sender, RoutedEventArgs e)
     {
+        if (!_rdpReady) { Status("Kontrol Windows RDP tidak tersedia di PC ini."); return; }
         var host = HostBox.Text.Trim();
         if (host.Length == 0) { Status("Isi alamat host dulu."); HostBox.Focus(); return; }
 

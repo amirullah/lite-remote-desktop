@@ -93,15 +93,20 @@ public partial class MainWindow : Window
     /// </summary>
     private void Rdp_Click(object sender, RoutedEventArgs e)
     {
+        // Always open the embedded RDP window (like the old mstsc.exe always popped up). The host is
+        // only a prefill — the RDP window has its own Host field the user can fill in there.
         var host = HostBox.Text.Trim();
-        if (string.IsNullOrWhiteSpace(host)) { SetStatus("Isi HOST ADDRESS dulu untuk Windows RDP."); return; }
         try
         {
             var win = new RdpWindow(host) { Owner = this };
             win.Show();
-            SetStatus($"Membuka sesi RDP tertanam ke {host}…");
+            SetStatus(host.Length > 0 ? $"Membuka sesi RDP tertanam ke {host}…" : "Membuka jendela Windows RDP…");
         }
-        catch (Exception ex) { SetStatus($"Gagal membuka RDP tertanam: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            Services.Diag.Log("Rdp_Click FAILED: " + ex);
+            SetStatus($"Gagal membuka RDP tertanam: {ex.Message}");
+        }
     }
 
     private void DeleteSaved_Click(object sender, RoutedEventArgs e)
