@@ -73,34 +73,39 @@ public sealed class GdiScreenCapture : IScreenCapture
     public CapturedFrame? Capture(int timeoutMs)
     {
         bool scaled = _dstW != _bounds.Width || _dstH != _bounds.Height;
-        // Agent mode always takes the raw-blit path so it can pass CAPTUREBLT (grabs layered windows
-        // like the login/lock UI). Managed CopyFromScreen rejects the combined ROP as an invalid enum.
-        if (!scaled && !DesktopFollow.Enabled)
+        // Always blit through the raw GDI path with CAPTUREBLT. CAPTUREBLT is what pulls *layered*
+        // windows into the copy — modern (Win11) context menus, dropdowns, tooltips, drop-shadows,
+        // and the login/lock UI are all layered. Without it, on hosts where DWM does not composite
+        // those into the framebuffer a plain BitBlt reads (VMs, basic/virtual display drivers, inside
+        // an RDP session), pop-up menus simply never appear in the captured frame — they "disappear"
+        // for the viewer. On a modern desktop GPU the flag is a no-op on output but costs a hair more;
+        // that trade is worth it because a remote session where right-click menus vanish is unusable.
+        // Managed Graphics.CopyFromScreen can't express SRCCOPY|CAPTUREBLT (it validates the ROP
+        // against the CopyPixelOperation enum and the combined value isn't a member), so we P/Invoke.
+        IntPtr screenDc = GetDC(IntPtr.Zero);
+        IntPtr dstDc = _graphics.GetHdc();
+        try
         {
-            // 1:1 — the straightforward managed copy.
-            _graphics.CopyFromScreen(_bounds.Location, Point.Empty, _bounds.Size, CopyPixelOperation.SourceCopy);
-        }
-        else
-        {
-            // Scale during the blit so the CPU-visible buffer (and its readback) is only dst-sized.
-            IntPtr screenDc = GetDC(IntPtr.Zero);
-            IntPtr dstDc = _graphics.GetHdc();
-            try
+            if (!scaled)
             {
+                BitBlt(dstDc, 0, 0, _dstW, _dstH, screenDc, _bounds.X, _bounds.Y, SRCCOPY | CAPTUREBLT);
+            }
+            else
+            {
+                // Scale during the blit so the CPU-visible buffer (and its readback) is only dst-sized.
                 // COLORONCOLOR (drops whole lines — cheap) rather than HALFTONE (resamples the whole
                 // source — measured 2-3× slower on weak/virtual GPUs). On capture-bound hosts, speed of
                 // the shrink matters far more than smoothness, and the viewer upscales HighQuality which
                 // already softens the result. This is deliberately the fast path.
                 SetStretchBltMode(dstDc, STRETCH_COLORONCOLOR);
-                uint rop = DesktopFollow.Enabled ? (SRCCOPY | CAPTUREBLT) : SRCCOPY;
                 StretchBlt(dstDc, 0, 0, _dstW, _dstH,
-                           screenDc, _bounds.X, _bounds.Y, _bounds.Width, _bounds.Height, rop);
+                           screenDc, _bounds.X, _bounds.Y, _bounds.Width, _bounds.Height, SRCCOPY | CAPTUREBLT);
             }
-            finally
-            {
-                _graphics.ReleaseHdc(dstDc);
-                ReleaseDC(IntPtr.Zero, screenDc);
-            }
+        }
+        finally
+        {
+            _graphics.ReleaseHdc(dstDc);
+            ReleaseDC(IntPtr.Zero, screenDc);
         }
 
         var data = _bitmap.LockBits(new Rectangle(0, 0, _dstW, _dstH),
@@ -161,12 +166,16 @@ public sealed class GdiScreenCapture : IScreenCapture
     private const int STRETCH_COLORONCOLOR = 3;
     private const int STRETCH_HALFTONE = 4;
     private const uint SRCCOPY = 0x00CC0020;
-    private const uint CAPTUREBLT = 0x40000000; // include layered windows (login/lock UI)
+    // Include layered windows (pop-up menus, tooltips, drop-shadows, the login/lock UI) in the copy.
+    private const uint CAPTUREBLT = 0x40000000;
 
     [DllImport("user32.dll")] private static extern IntPtr GetDC(IntPtr hWnd);
     [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
     [DllImport("gdi32.dll")] private static extern int SetStretchBltMode(IntPtr hdc, int mode);
     [DllImport("gdi32.dll")] private static extern bool SetBrushOrgEx(IntPtr hdc, int x, int y, IntPtr prev);
+    [DllImport("gdi32.dll")]
+    private static extern bool BitBlt(IntPtr hdcDest, int xDest, int yDest, int wDest, int hDest,
+        IntPtr hdcSrc, int xSrc, int ySrc, uint rop);
     [DllImport("gdi32.dll")]
     private static extern bool StretchBlt(IntPtr hdcDest, int xDest, int yDest, int wDest, int hDest,
         IntPtr hdcSrc, int xSrc, int ySrc, int wSrc, int hSrc, uint rop);
