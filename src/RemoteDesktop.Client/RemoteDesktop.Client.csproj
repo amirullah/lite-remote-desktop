@@ -16,6 +16,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RemoteDesktop.Shared\RemoteDesktop.Shared.csproj" />
+    <!-- H.264 decode (Media Foundation). The decoder source is shared with the host, which uses the
+         same class in its round-trip self-test; linking keeps a single source of truth. -->
+    <PackageReference Include="Vortice.MediaFoundation" Version="3.6.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\RemoteDesktop.Host\Capture\H264Decoder.cs" Link="Rendering\H264Decoder.cs" />
   </ItemGroup>
 
   <ItemGroup>

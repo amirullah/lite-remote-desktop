@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using RemoteDesktop.Host.Capture;
+using RemoteDesktop.Media;
 
 namespace RemoteDesktop.Host;
 

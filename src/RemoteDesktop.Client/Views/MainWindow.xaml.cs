@@ -193,7 +193,7 @@ public partial class MainWindow : Window
                 LeaveSession();
         });
 
-        conn.VideoConfigured += cfg => _surface?.Configure(cfg.Width, cfg.Height);
+        conn.VideoConfigured += cfg => _surface?.Configure(cfg.Width, cfg.Height, cfg.Codec);
         conn.FrameReceived += (_, _, tiles, _) => _surface?.ApplyFrame(tiles);
         conn.DisplaysReceived += displays => Dispatcher.Invoke(() => PopulateDisplays(displays));
         conn.StatReceived += stat => Dispatcher.Invoke(() =>

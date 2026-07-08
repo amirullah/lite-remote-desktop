@@ -233,6 +233,11 @@ public sealed class HostSession
     {
         var encoder = new JpegTileEncoder();
         var scaler = new FrameScaler();
+        // H.264 path (physical PCs with a hardware encoder). Created lazily when the client asks for
+        // H.264 and an encoder initialises for the current geometry; otherwise we stay on JPEG tiles.
+        H264Encoder? h264 = null;
+        var activeCodec = VideoCodec.JpegTiles;
+        var h264Tiles = new List<Tile>(1);
         uint frameId = 0;
         int idleFrames = 0;
         var sw = new Stopwatch();
@@ -351,31 +356,63 @@ public sealed class HostSession
                         frame = scaler.Scale(frame, (int)(frame.Width * k) & ~1, (int)(frame.Height * k) & ~1);
                 }
 
-                // Announce geometry the first time / whenever it changes.
-                if (announced is null || announced.Width != frame.Width || announced.Height != frame.Height)
+                // Negotiate the codec for this geometry. The client's PreferredCodec asks for H.264;
+                // we honour it only if an encoder actually initialises here (hardware present) — in a
+                // VM that fails and we transparently stay on JPEG tiles. Re-decide on any geometry
+                // change or when the client toggles the codec.
+                var desiredCodec = _settings.PreferredCodec == VideoCodec.H264 ? VideoCodec.H264 : VideoCodec.JpegTiles;
+                bool geoChanged = announced is null || announced.Width != frame.Width || announced.Height != frame.Height;
+                if (geoChanged || desiredCodec != activeCodec)
                 {
-                    announced = new VideoConfig(frame.Width, frame.Height, VideoCodec.JpegTiles, encoder.TileSize);
+                    if (h264 != null) { h264.Dispose(); h264 = null; }
+                    activeCodec = VideoCodec.JpegTiles;
+                    if (desiredCodec == VideoCodec.H264)
+                    {
+                        int fps = Math.Max(adaptive.CurrentFps, 30);
+                        int bitrate = EstimateH264Bitrate(frame.Width, frame.Height, fps);
+                        h264 = H264Encoder.TryCreate(frame.Width, frame.Height, fps, bitrate, preferHardware: true, out string why);
+                        if (h264 != null) activeCodec = VideoCodec.H264;
+                        else _log.LogInformation("H.264 requested but unavailable ({Why}); using JPEG tiles.", why);
+                    }
+                    announced = new VideoConfig(frame.Width, frame.Height, activeCodec, encoder.TileSize);
                     _channel.TrySend(PayloadCodec.VideoConfigMsg(announced));
                     _keyFrameRequested = true;
+                    _log.LogInformation("Streaming {W}x{H} as {Codec}", frame.Width, frame.Height, activeCodec);
                 }
 
-                encoder.SetQuality(adaptive.CurrentQuality);
                 bool wantKey = _keyFrameRequested;
                 _keyFrameRequested = false;
 
-                var tiles = encoder.Encode(frame, wantKey, out bool wasKey);
-                // Pure encode cost, measured before the (possibly blocking) send so the stat and the
-                // adaptive controller see real compression time, not network wait.
-                int encodeMs = (int)sw.ElapsedMilliseconds;
-                if (tiles.Count == 0)
+                IReadOnlyList<Tile> tiles;
+                bool wasKey;
+                int encodeMs;
+                if (activeCodec == VideoCodec.H264 && h264 != null)
                 {
-                    PaceFrame(sw, adaptive);
-                    // Back off polling on a static screen so an idle desktop costs almost nothing.
-                    // A single input/keyframe request resets this immediately.
-                    if (++idleFrames > 8) Thread.Sleep(Math.Min(60, (idleFrames - 8) * 4));
-                    continue;
+                    byte[] annexB = h264.Encode(frame.Bgra, frame.Stride, out wasKey);
+                    encodeMs = (int)sw.ElapsedMilliseconds;
+                    if (annexB.Length == 0) { PaceFrame(sw, adaptive); continue; } // encoder still warming up
+                    h264Tiles.Clear();
+                    h264Tiles.Add(new Tile(0, 0, (ushort)frame.Width, (ushort)frame.Height, annexB));
+                    tiles = h264Tiles;
+                    idleFrames = 0;
                 }
-                idleFrames = 0;
+                else
+                {
+                    encoder.SetQuality(adaptive.CurrentQuality);
+                    tiles = encoder.Encode(frame, wantKey, out wasKey);
+                    // Pure encode cost, measured before the (possibly blocking) send so the stat and the
+                    // adaptive controller see real compression time, not network wait.
+                    encodeMs = (int)sw.ElapsedMilliseconds;
+                    if (tiles.Count == 0)
+                    {
+                        PaceFrame(sw, adaptive);
+                        // Back off polling on a static screen so an idle desktop costs almost nothing.
+                        // A single input/keyframe request resets this immediately.
+                        if (++idleFrames > 8) Thread.Sleep(Math.Min(60, (idleFrames - 8) * 4));
+                        continue;
+                    }
+                    idleFrames = 0;
+                }
 
                 var flags = wasKey ? FrameFlags.KeyFrame : FrameFlags.None;
                 var frameMsg = VideoFrameCodec.Encode(frameId++, flags, tiles);
@@ -419,7 +456,9 @@ public sealed class HostSession
                     }
                 }
 
-                MaybeSendStat(adaptive, (int)captureMs, encodeMs, capture.BackendName);
+                string encName = activeCodec == VideoCodec.H264
+                    ? "H.264 hardware" : $"JPEG · {capture.BackendName}";
+                MaybeSendStat(adaptive, (int)captureMs, encodeMs, encName);
                 PaceFrame(sw, adaptive);
             }
             catch (OperationCanceledException) { break; }
@@ -440,8 +479,21 @@ public sealed class HostSession
         DrainPending();
         _capture?.Dispose();
         _capture = null;
+        h264?.Dispose();
         encoder.Dispose();
         scaler.Dispose();
+    }
+
+    /// <summary>
+    /// Target H.264 bitrate for a geometry/fps, nudged by the quality slider. Clamped to a sane band so
+    /// it never starves (blocky) or floods the link. Inter-frame compression means the real average
+    /// sits well below this on a mostly-static desktop.
+    /// </summary>
+    private int EstimateH264Bitrate(int width, int height, int fps)
+    {
+        double q = 0.5 + _settings.Quality / 100.0;           // 0.51 .. 1.5
+        double bps = (double)width * height * fps * 0.08 * q; // ~12 Mbps at 1080p60, quality 75
+        return (int)Math.Clamp(bps, 2_000_000, 25_000_000);
     }
 
     private static void PaceFrame(Stopwatch sw, AdaptiveController adaptive)

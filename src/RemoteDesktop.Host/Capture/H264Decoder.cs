@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 using SharpGen.Runtime;
 using Vortice.MediaFoundation;
 
-namespace RemoteDesktop.Host;
+namespace RemoteDesktop.Media;
 
 /// <summary>
 /// H.264 decoder (Media Foundation Transform). Milestone M2 of docs/H264-PLAN.md — the receiving half
