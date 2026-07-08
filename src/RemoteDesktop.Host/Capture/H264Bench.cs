@@ -43,16 +43,22 @@ internal static class H264Bench
         }
 
         Line($"Encoder: {enc.Info}");
+
+        // M2 round-trip: decode each encoded frame back to BGRA to prove the receiving half works.
+        H264Decoder? dec = H264Decoder.TryCreate(tw, th, fps, out string decReason);
+        Line(dec != null ? $"Decoder: {dec.Info}" : $"Decoder: TIDAK tersedia ({decReason})");
         Line(new string('-', 64));
 
         using var cap = new GdiScreenCapture(primary);
         cap.SetTargetSize(tw, th);
 
         int frames = 150, encoded = 0, keyframes = 0;
+        int decoded = 0; long decNonBlack = 0; double decSumMs = 0;
         long totalBytes = 0, firstFrameBytes = 0;
         double sumMs = 0, bestMs = double.MaxValue, worstMs = 0;
         bool sawStartCode = false;
         var sw = new Stopwatch();
+        var swd = new Stopwatch();
 
         try
         {
@@ -75,6 +81,18 @@ internal static class H264Bench
                 if (key) keyframes++;
                 if (encoded == 1) firstFrameBytes = nal.Length;
                 if (!sawStartCode) sawStartCode = HasAnnexBStartCode(nal);
+
+                if (dec != null)
+                {
+                    swd.Restart();
+                    byte[]? bgra = dec.Decode(nal, out _);
+                    decSumMs += swd.Elapsed.TotalMilliseconds;
+                    if (bgra != null)
+                    {
+                        decoded++;
+                        if (!IsMostlyBlack(bgra)) decNonBlack++;
+                    }
+                }
             }
         }
         catch (Exception ex)
@@ -83,10 +101,17 @@ internal static class H264Bench
         }
         finally
         {
+            dec?.Dispose();
             enc.Dispose();
         }
 
         Line($"Frame ter-encode : {encoded} / {frames}");
+        if (dec != null)
+        {
+            Line($"Frame ter-decode : {decoded} / {encoded}  (non-hitam: {decNonBlack})");
+            if (decoded > 0) Line($"Decode ms        : {decSumMs / decoded,6:F2} avg");
+            Line($"Round-trip       : {(decoded > 0 && decNonBlack > 0 ? "BERHASIL (encode->decode->gambar valid)" : "GAGAL — periksa decoder")}");
+        }
         if (encoded > 0)
         {
             Line($"Encode ms        : {sumMs / encoded,6:F2} avg / {bestMs,6:F2} best / {worstMs,6:F2} worst");
@@ -106,6 +131,18 @@ internal static class H264Bench
             Line("Encode ter-pipeline di produksi -> tersembunyi di balik capture; inter-frame jauh lebih hemat dari JPEG.");
         }
         Save();
+    }
+
+    private static bool IsMostlyBlack(byte[] bgra)
+    {
+        // Sample a sparse grid; a genuinely decoded desktop frame has plenty of non-zero luma.
+        long nonBlack = 0; int samples = 0;
+        for (int i = 0; i + 3 < bgra.Length; i += 4 * 257) // prime stride to avoid aliasing
+        {
+            samples++;
+            if (bgra[i] > 8 || bgra[i + 1] > 8 || bgra[i + 2] > 8) nonBlack++;
+        }
+        return samples == 0 || nonBlack * 100 / samples < 2; // <2% non-black -> effectively blank
     }
 
     private static bool HasAnnexBStartCode(byte[] b)

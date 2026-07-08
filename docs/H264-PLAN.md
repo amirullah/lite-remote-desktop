@@ -31,7 +31,12 @@ JPEG-tiles tetap fallback universal (VM tanpa encoder hardware, atau negosiasi g
     tanpa B-frame.
   - Uji `--bench-h264`: capture beberapa frame, encode, verifikasi ada start-code NAL +
     ukuran + waktu. Jalankan di PC fisik (harus hardware) — target enc < 5 ms.
-- [ ] **M2 — Decoder client** (`H264Decoder.cs`):
+- [x] **M2 — Decoder client** (`H264Decoder.cs`) — SELESAI & terbukti:
+  - `Microsoft H264 Video Decoder MFT`, NV12→BGRA (paralel), tangani MF_E_TRANSFORM_STREAM_CHANGE.
+  - Round-trip di `--bench-h264`: 149/150 frame ter-decode, semua gambar valid (non-hitam),
+    decode ~4 ms/frame. Codec terbukti dua arah pada satu mesin.
+  - Catatan integrasi: kelas ada di proyek Host untuk uji; M4 memindah/mereferensikan ke Client.
+  - Detail asli milestone: 
   - `IMFTransform` decoder H.264 (DXVA hardware bila ada) → NV12 → RGB → WriteableBitmap.
   - Atau MediaEngine/SampleGrabber. Rakit ulang NAL menjadi sample; suapi decoder.
 - [ ] **M3 — Protokol & negosiasi**:
