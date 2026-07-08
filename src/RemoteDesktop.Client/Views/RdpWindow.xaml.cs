@@ -23,6 +23,7 @@ public partial class RdpWindow : Window
     private bool _wasConnected;
     private bool _rdpReady;   // true once the ActiveX control is attached & created without error
     private SplitTunnelVpn? _vpn;   // active split tunnel for this session, if any
+    private readonly DispatcherTimer _resize = new() { Interval = TimeSpan.FromMilliseconds(250) };
 
     public RdpWindow(string host, string? user = null)
     {
@@ -36,8 +37,11 @@ public partial class RdpWindow : Window
         HostBox.Text = host ?? string.Empty;
         UserBox.Text = user ?? string.Empty;
         try { VpnBox.Text = Services.ClientConfig.Load().LastVpnProfile ?? string.Empty; } catch { }
+        LoadSavedRdpCreds();   // prefill remembered RDP user/password for this host, if any
 
         _poll.Tick += (_, _) => UpdateConnectionState();
+        _resize.Tick += (_, _) => { _resize.Stop(); ApplyRemoteSize(); };
+        SizeChanged += (_, _) => { _resize.Stop(); _resize.Start(); };   // debounce window resizes
         Loaded += OnLoaded;
         Closed += (_, _) =>
         {
@@ -58,6 +62,7 @@ public partial class RdpWindow : Window
             FormsHost.Child = _rdp;
             init.EndInit();
             _rdp.CreateControl();   // realise the child HWND + instantiate the mstscax OLE object
+            _rdp.Dock = System.Windows.Forms.DockStyle.Fill;   // fill the WindowsFormsHost, not the ActiveX default size
             _ = _rdp.Ocx;           // dereference once so a missing/unregistered control throws here
             _rdpReady = true;
         }
@@ -124,6 +129,7 @@ public partial class RdpWindow : Window
             }
 
             StartRdp(host, port);
+            SaveCredsIfWanted(VpnBox.Text.Trim(), host);   // remember passwords if the box is ticked
         }
         catch (Exception ex)
         {
@@ -173,20 +179,66 @@ public partial class RdpWindow : Window
         if (dlg.ShowDialog(this) == true) { VpnBox.Text = dlg.FileName; RememberVpn(dlg.FileName); }
     }
 
-    private void ClearVpn_Click(object sender, RoutedEventArgs e) { VpnBox.Text = string.Empty; VpnUserBox.Text = string.Empty; }
+    private void ClearVpn_Click(object sender, RoutedEventArgs e) { VpnBox.Text = string.Empty; VpnUserBox.Text = string.Empty; VpnPassBox.Password = string.Empty; }
 
-    // When a profile is chosen, prefill the VPN username from the profile if it carries one
-    // (myITS profiles embed  setenv USERNAME "NRP@student.its.ac.id" ).
+    // When a profile is chosen: prefill the VPN username from the profile (myITS profiles embed
+    // setenv USERNAME "NRP@student.its.ac.id"), then load any remembered VPN password for it.
     private void VpnBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
     {
-        if (VpnUserBox is null || VpnUserBox.Text.Trim().Length > 0) return;
+        if (VpnUserBox is null) return;
         var path = VpnBox.Text.Trim();
-        if (path.Length == 0 || !File.Exists(path)) return;
+        if (VpnUserBox.Text.Trim().Length == 0 && path.Length > 0 && File.Exists(path))
+        {
+            try
+            {
+                var text = File.ReadAllText(path);
+                var m = Regex.Match(text, "setenv\\s+USERNAME\\s+\"?([^\"\\r\\n]+)\"?", RegexOptions.IgnoreCase);
+                if (m.Success) VpnUserBox.Text = m.Groups[1].Value.Trim();
+            }
+            catch { }
+        }
+        LoadSavedVpnPass(path);
+    }
+
+    private void HostBox_LostFocus(object sender, RoutedEventArgs e) => LoadSavedRdpCreds();
+
+    private void LoadSavedVpnPass(string profile)
+    {
+        if (VpnPassBox is null || profile.Length == 0 || VpnPassBox.Password.Length > 0) return;
         try
         {
-            var text = File.ReadAllText(path);
-            var m = Regex.Match(text, "setenv\\s+USERNAME\\s+\"?([^\"\\r\\n]+)\"?", RegexOptions.IgnoreCase);
-            if (m.Success) VpnUserBox.Text = m.Groups[1].Value.Trim();
+            var pass = ClientConfig.Load().GetSecret("vpn:" + profile);
+            if (!string.IsNullOrEmpty(pass)) { VpnPassBox.Password = pass; if (SaveCredsCheck != null) SaveCredsCheck.IsChecked = true; }
+        }
+        catch { }
+    }
+
+    private void LoadSavedRdpCreds()
+    {
+        if (PassBox is null) return;
+        var host = HostBox.Text.Trim();
+        if (host.Length == 0) return;
+        try
+        {
+            var combo = ClientConfig.Load().GetSecret("rdp:" + SplitHostPort(host).host);
+            if (string.IsNullOrEmpty(combo)) return;
+            var parts = combo.Split('\n');
+            if (UserBox.Text.Trim().Length == 0 && parts.Length > 0) UserBox.Text = parts[0];
+            if (PassBox.Password.Length == 0 && parts.Length > 1) PassBox.Password = parts[1];
+            if (SaveCredsCheck != null) SaveCredsCheck.IsChecked = true;
+        }
+        catch { }
+    }
+
+    private void SaveCredsIfWanted(string profile, string host)
+    {
+        try
+        {
+            var cfg = ClientConfig.Load();
+            bool save = SaveCredsCheck?.IsChecked == true;
+            if (profile.Length > 0) cfg.SetSecret("vpn:" + profile, save ? VpnPassBox.Password : null);
+            cfg.SetSecret("rdp:" + host, save ? (UserBox.Text.Trim() + "\n" + PassBox.Password) : null);
+            cfg.Save();
         }
         catch { }
     }
@@ -272,6 +324,24 @@ public partial class RdpWindow : Window
         Status("Terputus.");
     }
 
+    /// <summary>
+    /// Resize the remote session to the current frame so it fills the window crisply (RDP 8.1+ dynamic
+    /// resolution). Hosts that don't support the live update simply keep their size — SmartSizing (set in
+    /// TryAdvanced) then scales the image to fill instead.
+    /// </summary>
+    private void ApplyRemoteSize()
+    {
+        if (!_rdpReady) return;
+        try
+        {
+            if ((int)_rdp.Ocx.Connected != 1) return;
+            uint w = (uint)Math.Max(200, (int)RdpFrame.ActualWidth);
+            uint h = (uint)Math.Max(200, (int)RdpFrame.ActualHeight);
+            _rdp.Ocx.UpdateSessionDisplaySettings(w, h, w, h, 0u, 100u, 100u);
+        }
+        catch (Exception ex) { Services.Diag.Log("[rdp] resize: " + ex.GetType().Name); }
+    }
+
     private void UpdateConnectionState()
     {
         bool connected = _rdp.IsConnected;
@@ -282,6 +352,7 @@ public partial class RdpWindow : Window
             Status("Terhubung.");
             ConnectBtn.IsEnabled = false;
             DisconnectBtn.IsEnabled = true;
+            _resize.Stop(); _resize.Start();   // fit the remote desktop to the window once it's up
         }
         else
         {
@@ -291,7 +362,13 @@ public partial class RdpWindow : Window
         }
     }
 
-    private void Status(string msg) => StatusText.Text = msg;
+    // Thread-safe: the VPN read loop reports state from a background thread, and touching a WPF element
+    // off the UI thread throws. Marshal to the dispatcher.
+    private void Status(string msg)
+    {
+        if (Dispatcher.CheckAccess()) StatusText.Text = msg;
+        else Dispatcher.BeginInvoke(new Action(() => StatusText.Text = msg));
+    }
 
     /// <summary>
     /// Headless smoke test: instantiate the ActiveX, issue Connect() (no password — enough to prove the

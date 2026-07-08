@@ -18,6 +18,19 @@ public sealed class ClientConfig
     /// <summary>Last .ovpn profile used by the embedded RDP "VPN + RDP" flow, so it prefills next time.</summary>
     public string? LastVpnProfile { get; set; }
 
+    /// <summary>Optionally-remembered passwords, DPAPI-encrypted per Windows user (see <see cref="SecretStore"/>).
+    /// Keys are like "vpn:&lt;profile-path&gt;" or "rdp:&lt;host&gt;". Never stored in plaintext.</summary>
+    public Dictionary<string, string> Secrets { get; set; } = new();
+
+    public string? GetSecret(string key) => Secrets.TryGetValue(key, out var v) ? SecretStore.Unprotect(v) : null;
+
+    public void SetSecret(string key, string? plain)
+    {
+        if (string.IsNullOrEmpty(plain)) { Secrets.Remove(key); return; }
+        var enc = SecretStore.Protect(plain);
+        if (enc != null) Secrets[key] = enc;
+    }
+
     public void Remember(SavedConnection conn)
     {
         Recent.RemoveAll(c => c.Host == conn.Host && c.Port == conn.Port);
