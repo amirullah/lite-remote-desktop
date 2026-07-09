@@ -37,6 +37,7 @@ public partial class RdpWindow : Window
     private WindowState _prevState = WindowState.Normal;
     private WindowStyle _prevStyle = WindowStyle.SingleBorderWindow;
     private ResizeMode _prevResize = ResizeMode.CanResize;
+    private Rect _prevBounds;   // windowed position/size, restored when leaving fullscreen
     private Window? _bar;   // auto-hide session toolbar shown on top-edge hover in fullscreen
     private readonly DispatcherTimer _hover = new() { Interval = TimeSpan.FromMilliseconds(120) };
 
@@ -558,11 +559,20 @@ public partial class RdpWindow : Window
         if (!_fullscreen)
         {
             _prevState = WindowState; _prevStyle = WindowStyle; _prevResize = ResizeMode;
+            _prevBounds = new Rect(Left, Top, Width, Height);
             TopBar.Visibility = Visibility.Collapsed;
+
+            // Cover EXACTLY the monitor this window is on. A borderless WindowState.Maximized can stretch
+            // across the WHOLE virtual desktop on a multi-monitor setup (the remote + toolbar then split
+            // over both screens). Pinning to the one screen's bounds keeps fullscreen on a single monitor.
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle();
+            var scr = System.Windows.Forms.Screen.FromHandle(hwnd).Bounds;   // physical pixels
+            var (dx, dy) = DpiScale();
+            WindowState = WindowState.Normal;   // drop any maximized state before we position manually
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;
-            if (WindowState == WindowState.Maximized) WindowState = WindowState.Normal; // force a real resize
-            WindowState = WindowState.Maximized;
+            Left = scr.Left / dx; Top = scr.Top / dy;
+            Width = scr.Width / dx; Height = scr.Height / dy;
             _fullscreen = true;
             _hover.Start();   // reveal the overlay toolbar on top-edge hover (Esc/F11 are eaten by RDP)
             Status(Loc.T("Rdp.Status.FullscreenHint"));
@@ -573,6 +583,8 @@ public partial class RdpWindow : Window
             TopBar.Visibility = Visibility.Visible;
             WindowStyle = _prevStyle;
             ResizeMode = _prevResize;
+            Left = _prevBounds.Left; Top = _prevBounds.Top;
+            Width = _prevBounds.Width; Height = _prevBounds.Height;
             WindowState = _prevState;
             _fullscreen = false;
             Status(_rdp.IsConnected ? Loc.T("Rdp.Status.Connected") : Loc.T("Rdp.StatusDefault"));
