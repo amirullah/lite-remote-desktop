@@ -26,6 +26,10 @@ public partial class RdpWindow : Window
     private readonly DispatcherTimer _resize = new() { Interval = TimeSpan.FromMilliseconds(300) };
     private readonly System.Windows.Forms.Panel _panel = new() { Dock = System.Windows.Forms.DockStyle.Fill };
     private volatile bool _sessionUp;   // true only after the RDP session is fully logged in (safe to resize)
+    private bool _fullscreen;
+    private WindowState _prevState = WindowState.Normal;
+    private WindowStyle _prevStyle = WindowStyle.SingleBorderWindow;
+    private ResizeMode _prevResize = ResizeMode.CanResize;
 
     public RdpWindow(string host, string? user = null)
     {
@@ -347,6 +351,38 @@ public partial class RdpWindow : Window
     {
         try { if (_rdp.IsConnected) _rdp.Ocx.Disconnect(); } catch { }
         Status("Terputus.");
+    }
+
+    // ---- Fullscreen (mstsc-style): hide the top bar, borderless-maximize; F11/Esc exits. ----
+    private void Fullscreen_Click(object sender, RoutedEventArgs e) => ToggleFullscreen();
+
+    private void Window_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.F11) { ToggleFullscreen(); e.Handled = true; }
+        else if (e.Key == System.Windows.Input.Key.Escape && _fullscreen) { ToggleFullscreen(); e.Handled = true; }
+    }
+
+    private void ToggleFullscreen()
+    {
+        if (!_fullscreen)
+        {
+            _prevState = WindowState; _prevStyle = WindowStyle; _prevResize = ResizeMode;
+            TopBar.Visibility = Visibility.Collapsed;
+            WindowStyle = WindowStyle.None;
+            ResizeMode = ResizeMode.NoResize;
+            if (WindowState == WindowState.Maximized) WindowState = WindowState.Normal; // force a real resize
+            WindowState = WindowState.Maximized;
+            _fullscreen = true;
+            Status("Layar penuh — F11 atau Esc untuk keluar.");
+        }
+        else
+        {
+            TopBar.Visibility = Visibility.Visible;
+            WindowStyle = _prevStyle;
+            ResizeMode = _prevResize;
+            WindowState = _prevState;
+            _fullscreen = false;
+        }
     }
 
     /// <summary>

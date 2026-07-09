@@ -98,13 +98,18 @@ public partial class MainWindow : Window
         var host = HostBox.Text.Trim();
         try
         {
-            var win = new RdpWindow(host) { Owner = this };
+            // One window at a time: hide the connect window while the RDP session window is up, and
+            // restore it when the session closes. RdpWindow already unifies connect fields + live session,
+            // so the user only ever sees a single window — no confusing second popup alongside this one.
+            var win = new RdpWindow(host);
+            win.Closed += (_, _) => { Show(); Activate(); };
+            Hide();
             win.Show();
-            SetStatus(host.Length > 0 ? $"Membuka sesi RDP tertanam ke {host}…" : "Membuka jendela Windows RDP…");
         }
         catch (Exception ex)
         {
             Services.Diag.Log("Rdp_Click FAILED: " + ex);
+            Show();
             SetStatus($"Gagal membuka RDP tertanam: {ex.Message}");
         }
     }
