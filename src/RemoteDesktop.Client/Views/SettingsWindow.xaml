@@ -118,22 +118,64 @@
                 <Border Style="{StaticResource SCard}">
                     <StackPanel>
                         <TextBlock Text="{loc:Loc Settings.About.Title}" Style="{StaticResource STitle}"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                            <Border Width="46" Height="46" CornerRadius="13" Background="{DynamicResource AccentGrad}">
-                                <TextBlock Text="◆" FontSize="22" Foreground="White"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                            <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
-                                <TextBlock Text="LiteRemote" FontSize="20" FontWeight="Bold"/>
-                                <TextBlock x:Name="VersionText" Foreground="{DynamicResource Muted}" FontSize="12.5"/>
+
+                        <!-- brand row: real app icon · name + tagline · version badge -->
+                        <Grid Margin="0,0,0,14">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Image Grid.Column="0" Source="/Assets/literemote.ico" Width="52" Height="52"
+                                   RenderOptions.BitmapScalingMode="HighQuality" VerticalAlignment="Center"/>
+                            <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="LiteRemote" FontSize="21" FontWeight="Bold"/>
+                                <TextBlock Text="{loc:Loc Connect.Tagline}" Foreground="{DynamicResource Muted}"
+                                           FontSize="12.5" Margin="0,1,0,0"/>
                             </StackPanel>
-                        </StackPanel>
+                            <Border Grid.Column="2" VerticalAlignment="Center" CornerRadius="9" Padding="11,5"
+                                    Background="{DynamicResource PanelHi}" BorderBrush="{DynamicResource Stroke}"
+                                    BorderThickness="1">
+                                <TextBlock x:Name="VersionText" Foreground="{DynamicResource Fg}"
+                                           FontSize="12.5" FontWeight="SemiBold"/>
+                            </Border>
+                        </Grid>
+
                         <TextBlock Text="{loc:Loc Settings.About.Desc}" Foreground="{DynamicResource Fg}"
-                                   TextWrapping="Wrap" LineHeight="20" FontSize="13" Margin="0,0,0,10"/>
-                        <TextBlock Text="{loc:Loc Settings.About.Author}" Foreground="{DynamicResource Fg}"
-                                   FontWeight="SemiBold" Margin="0,0,0,12"/>
-                        <Button Content="{loc:Loc Settings.About.Github}" Style="{StaticResource Ghost}"
-                                HorizontalAlignment="Left" Click="Github_Click"/>
+                                   TextWrapping="Wrap" LineHeight="20" FontSize="13" Margin="0,0,0,14"/>
+
+                        <Border Height="1" Background="{DynamicResource Stroke}" Margin="0,0,0,14"/>
+
+                        <!-- info rows -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="112"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Settings.About.DeveloperLabel}"
+                                       Foreground="{DynamicResource Muted}" FontSize="13" Margin="0,0,0,9"/>
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="amirullah"
+                                       Foreground="{DynamicResource Fg}" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,9"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Settings.About.TechLabel}"
+                                       Foreground="{DynamicResource Muted}" FontSize="13"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text=".NET 8 · WPF · Media Foundation"
+                                       Foreground="{DynamicResource Fg}" FontSize="13"/>
+                        </Grid>
+
+                        <!-- links -->
+                        <StackPanel Orientation="Horizontal" Margin="0,16,0,14">
+                            <Button Content="{loc:Loc Settings.About.Github}" Style="{StaticResource Ghost}"
+                                    Click="Github_Click"/>
+                            <Button Content="{loc:Loc Settings.About.Issues}" Style="{StaticResource Ghost}"
+                                    Margin="10,0,0,0" Click="Issues_Click"/>
+                        </StackPanel>
+
+                        <TextBlock Text="{loc:Loc Settings.About.Copyright}" Foreground="{DynamicResource Muted}"
+                                   FontSize="12"/>
                     </StackPanel>
                 </Border>
 

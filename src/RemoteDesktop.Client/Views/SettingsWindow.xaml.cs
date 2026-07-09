@@ -18,6 +18,7 @@ public partial class SettingsWindow : Window
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string RunValueName = "LiteRemote";
     private const string RepoUrl = "https://github.com/amirullah/lite-remote-desktop";
+    private const string IssuesUrl = RepoUrl + "/issues";
 
     private readonly ClientConfig _config;
     private bool _loading;
@@ -40,8 +41,7 @@ public partial class SettingsWindow : Window
         StartupCheck.IsChecked = IsStartupEnabled();
 
         var v = Assembly.GetExecutingAssembly().GetName().Version;
-        VersionText.Text = Loc.T("Settings.About.VersionLabel") + " " +
-                           (v is null ? "—" : $"{v.Major}.{v.Minor}.{v.Build}");
+        VersionText.Text = v is null ? "—" : $"v{v.Major}.{v.Minor}.{v.Build}";
         _loading = false;
     }
 
@@ -111,6 +111,8 @@ public partial class SettingsWindow : Window
     }
 
     private void Github_Click(object sender, RoutedEventArgs e) => ShellOpen(RepoUrl);
+
+    private void Issues_Click(object sender, RoutedEventArgs e) => ShellOpen(IssuesUrl);
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
 
