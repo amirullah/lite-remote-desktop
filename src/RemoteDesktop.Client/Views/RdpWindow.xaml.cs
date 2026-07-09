@@ -316,12 +316,14 @@ public partial class RdpWindow : Window
         ocx.Server = host;
         if (UserBox.Text.Trim().Length > 0) ocx.UserName = UserBox.Text.Trim();
 
-        // Size the initial session to the frame IN DEVICE PIXELS (not WPF DIPs), and pick dynamic-
-        // resolution mode (SmartSizing off) so the remote renders 1:1 and fills crisply. On connect/
-        // resize we call UpdateSessionDisplaySettings to re-fit — gated on a real "session up" signal.
+        // Size the initial session to the frame IN DEVICE PIXELS (not WPF DIPs). On connect/resize we call
+        // UpdateSessionDisplaySettings to re-size the REMOTE to match (crisp 1:1) where the server supports
+        // dynamic resolution. SmartSizing = TRUE is the guarantee that fullscreen fits ANY viewer screen
+        // WITHOUT scrollbars even when the server can't resize (then it scales-to-fit). Set BEFORE Connect so
+        // it never has to be toggled live (a live toggle is what trips the SmartSizing blank-to-black bug).
         var (w, h) = FramePx();
         try { ocx.DesktopWidth = w; ocx.DesktopHeight = h; } catch { }
-        try { ocx.AdvancedSettings2.SmartSizing = false; } catch { }
+        try { ocx.AdvancedSettings2.SmartSizing = true; } catch { }
 
         TryAdvanced(ocx, port, PassBox.Password);
 

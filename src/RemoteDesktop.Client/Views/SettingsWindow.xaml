@@ -126,8 +126,14 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <Image Grid.Column="0" Source="/Assets/literemote.ico" Width="52" Height="52"
-                                   RenderOptions.BitmapScalingMode="HighQuality" VerticalAlignment="Center"/>
+                            <!-- Decode the LARGE .ico frame (the file has up to 256px); without DecodePixelWidth
+                                 WPF grabs a tiny frame and upscales it → pixelated ("pecah"). -->
+                            <Image Grid.Column="0" Width="52" Height="52"
+                                   RenderOptions.BitmapScalingMode="HighQuality" VerticalAlignment="Center">
+                                <Image.Source>
+                                    <BitmapImage UriSource="/Assets/literemote.ico" DecodePixelWidth="128"/>
+                                </Image.Source>
+                            </Image>
                             <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="LiteRemote" FontSize="21" FontWeight="Bold"/>
                                 <TextBlock Text="{loc:Loc Connect.Tagline}" Foreground="{DynamicResource Muted}"
