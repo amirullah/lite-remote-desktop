@@ -36,6 +36,9 @@ public static partial class Loc
         if (Id.TryGetValue(key, out var f)) return f;
         return key;
     }
+
+    /// <summary>Localized string with <see cref="string.Format(string, object[])"/> arguments.</summary>
+    public static string F(string key, params object[] args) => string.Format(T(key), args);
 }
 
 /// <summary>Notifies bindings when the language changes (via a bumped tick).</summary>

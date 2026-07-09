@@ -167,7 +167,7 @@ public partial class MainWindow : Window
         AuthPasswordRadio.IsChecked = true;
         SavePasswordCheck.IsChecked = s.SavePassword;     // keep the user's remember choice
         PasswordBox.Focus();
-        SetStatus($"Masukkan password untuk {s.DisplayName}, lalu tekan Connect.");
+        SetStatus(Loc.F("Msg.EnterPasswordFor", s.DisplayName));
     }
 
     /// <summary>Build a credential for a saved session WITHOUT the form, from the DPAPI-remembered password.</summary>
@@ -205,16 +205,16 @@ public partial class MainWindow : Window
                     host = $"{host}:{p}";
 
                 // ---- validate the main-form RDP inputs (password may be left blank on purpose) ----
-                if (host.Length == 0) { Invalid("Masukkan alamat host untuk RDP.", HostBox); return; }
+                if (host.Length == 0) { Invalid(Loc.T("Msg.RdpNeedHost"), HostBox); return; }
                 if (UseVpnCheck.IsChecked == true)
                 {
                     if (string.IsNullOrWhiteSpace(VpnProfileBox.Text) || !System.IO.File.Exists(VpnProfileBox.Text))
-                    { Invalid("Pilih profil .ovpn yang valid untuk VPN.", VpnProfileBox); return; }
-                    if (VpnUserBox.Text.Trim().Length == 0) { Invalid("Isi VPN user.", VpnUserBox); return; }
-                    if (VpnPassBox.Password.Length == 0) { Invalid("Isi VPN password.", VpnPassBox); return; }
+                    { Invalid(Loc.T("Msg.VpnNeedProfile"), VpnProfileBox); return; }
+                    if (VpnUserBox.Text.Trim().Length == 0) { Invalid(Loc.T("Msg.VpnNeedUser"), VpnUserBox); return; }
+                    if (VpnPassBox.Password.Length == 0) { Invalid(Loc.T("Msg.VpnNeedPass"), VpnPassBox); return; }
                 }
             }
-            if (host.Length == 0) { SetStatus("Masukkan alamat host untuk RDP."); return; }
+            if (host.Length == 0) { SetStatus(Loc.T("Msg.RdpNeedHost")); return; }
 
             var win = new RdpWindow(host);
             if (s != null)
@@ -231,12 +231,12 @@ public partial class MainWindow : Window
             }
             win.Closed += (_, _) => RefreshRecent();
             win.Show();
-            SetStatus("Sesi RDP dibuka di jendela baru.");
+            SetStatus(Loc.T("Msg.RdpOpened"));
         }
         catch (Exception ex)
         {
             Services.Diag.Log("OpenRdp FAILED: " + ex);
-            SetStatus($"Gagal membuka RDP tertanam: {ex.Message}");
+            SetStatus(Loc.F("Msg.RdpFailed", ex.Message));
         }
     }
 
@@ -290,28 +290,28 @@ public partial class MainWindow : Window
 
             if (idMode)
             {
-                if (relay.Length == 0) { Invalid("Isi Relay server (wajib untuk koneksi ID)."); AdvancedExpander.IsExpanded = true; RelayBox.Focus(); return; }
-                if (id.Length != 9) { Invalid("Masukkan Partner ID 9 digit lengkap.", IdBox); return; }
+                if (relay.Length == 0) { Invalid(Loc.T("Msg.NeedRelay")); AdvancedExpander.IsExpanded = true; RelayBox.Focus(); return; }
+                if (id.Length != 9) { Invalid(Loc.T("Msg.NeedId9"), IdBox); return; }
             }
             else
             {
-                if (host.Length == 0) { Invalid("Masukkan Host address.", HostBox); return; }
-                if (!int.TryParse(PortBox.Text.Trim(), out port) || port is < 1 or > 65535) { Invalid("Port tidak valid (1–65535).", PortBox); return; }
+                if (host.Length == 0) { Invalid(Loc.T("Msg.NeedHost"), HostBox); return; }
+                if (!int.TryParse(PortBox.Text.Trim(), out port) || port is < 1 or > 65535) { Invalid(Loc.T("Msg.BadPort"), PortBox); return; }
             }
-            if (auth == ProtocolAuth.Password && PasswordBox.Password.Length == 0) { Invalid("Isi Host access password.", PasswordBox); return; }
-            if (auth == ProtocolAuth.Google && GoogleClientIdBox.Text.Trim().Length == 0) { Invalid("Isi Google OAuth client id.", GoogleClientIdBox); return; }
+            if (auth == ProtocolAuth.Password && PasswordBox.Password.Length == 0) { Invalid(Loc.T("Msg.NeedHostPwd"), PasswordBox); return; }
+            if (auth == ProtocolAuth.Google && GoogleClientIdBox.Text.Trim().Length == 0) { Invalid(Loc.T("Msg.NeedGoogleId"), GoogleClientIdBox); return; }
 
             string? vpnPath = null;
             if (useVpn)
             {
                 if (string.IsNullOrWhiteSpace(VpnProfileBox.Text) || !System.IO.File.Exists(VpnProfileBox.Text))
-                { Invalid("Pilih profil .ovpn yang valid.", VpnProfileBox); return; }
+                { Invalid(Loc.T("Msg.VpnNeedProfile"), VpnProfileBox); return; }
                 vpnPath = VpnProfileBox.Text.Trim();
             }
 
             // ---- build the credential (Google may open a browser) ----
             Credential? credential = await BuildCredentialAsync();
-            if (credential is null) { SetStatus("Login gagal / dibatalkan."); return; }
+            if (credential is null) { SetStatus(Loc.T("Msg.LoginFailed")); return; }
 
             var req = new SessionRequest { IdMode = idMode, Credential = credential, Settings = BuildInitialSettings() };
             string label = NameBox.Text.Trim();
@@ -352,7 +352,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            SetStatus($"Error: {ex.Message}");
+            SetStatus(Loc.F("Msg.Error", ex.Message));
         }
         finally
         {
@@ -375,7 +375,7 @@ public partial class MainWindow : Window
         var win = new SessionWindow(req, _pins);
         win.Closed += (_, _) => RefreshRecent();
         win.Show();
-        SetStatus("Sesi dibuka di jendela baru — Anda bisa membuka koneksi lain sekaligus.");
+        SetStatus(Loc.T("Msg.SessionOpened"));
     }
 
     /// <summary>Initial settings for a new session; the session toolbar tunes fps/res/codec/quality live.</summary>
@@ -402,11 +402,11 @@ public partial class MainWindow : Window
         }
 
         var clientId = GoogleClientIdBox.Text.Trim();
-        if (clientId.Length == 0) { SetStatus("Masukkan Google OAuth client id Anda."); return null; }
+        if (clientId.Length == 0) { SetStatus(Loc.T("Msg.NeedGoogleId")); return null; }
         _config.GoogleClientId = clientId;
         _config.Save();
 
-        SetStatus("Menunggu login Google di browser…");
+        SetStatus(Loc.T("Msg.WaitingGoogle"));
         var oauth = new GoogleOAuthClient(clientId);
         var idToken = await oauth.SignInAsync();
         return idToken is null ? null : new GoogleCredential(idToken);
