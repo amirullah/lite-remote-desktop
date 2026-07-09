@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net;
 using System.Windows;
 using System.Windows.Controls;
@@ -13,7 +14,7 @@ namespace RemoteDesktop.Client.Views;
 
 public partial class MainWindow : Window
 {
-    private readonly ClientConfig _config = ClientConfig.Load();
+    private ClientConfig _config = ClientConfig.Load();
     private readonly PinStore _pins = new(AppPaths.PinStore);
 
     private RemoteConnection? _connection;
@@ -58,6 +59,7 @@ public partial class MainWindow : Window
             PortBox.Text = _config.Recent[0].Port.ToString();
         }
         PopulateSaved();
+        RefreshRecent();
         Loaded += (_, _) => _clipboard = new ClipboardBridge(this);
         Closing += (_, _) => Cleanup();
     }
@@ -69,10 +71,8 @@ public partial class MainWindow : Window
     {
         _suppressSaved = true;
         SavedBox.Items.Clear();
-        foreach (var c in _config.Recent)
-            SavedBox.Items.Add($"{(string.IsNullOrWhiteSpace(c.Label) ? c.Host : c.Label)}   ·   {c.Host}:{c.Port}");
-        SavedRow.Visibility = _config.Recent.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        SavedBox.SelectedIndex = _config.Recent.Count > 0 ? 0 : -1;
+        // The old saved-sessions combo is superseded by the Recent & Saved column on the right.
+        SavedRow.Visibility = Visibility.Collapsed;
         _suppressSaved = false;
     }
 
@@ -85,34 +85,82 @@ public partial class MainWindow : Window
         PortBox.Text = _config.Recent[i].Port.ToString();
     }
 
+    // ---------------- Recent / saved sessions (right column) ----------------
+    /// <summary>Fill the right-column list from the unified store (pinned first, then most-recent).</summary>
+    private void RefreshRecent()
+    {
+        try
+        {
+            _config = ClientConfig.Load();   // reload so sessions saved by the RDP window show up too
+            RecentList.ItemsSource = _config.Ordered.ToList();
+            RecentEmpty.Visibility = _config.Sessions.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        catch { }
+    }
+
+    private void RecentCard_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is SavedSession s) ConnectSaved(s);
+    }
+
+    private void RecentDelete_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is SavedSession s) { _config.DeleteSession(s.Id); RefreshRecent(); }
+    }
+
+    /// <summary>One-click reconnect: prefill the right fields for the session's type and connect.</summary>
+    private void ConnectSaved(SavedSession s)
+    {
+        _config.TouchSession(s.Id);
+        switch (s.Kind)
+        {
+            case SessionKind.Rdp:
+                OpenRdp(s);
+                break;
+            case SessionKind.LiteRemoteId:
+                ModeIdRadio.IsChecked = true;
+                IdBox.Text = s.RelayId;
+                Connect_Click(this, new RoutedEventArgs());
+                break;
+            default: // LiteRemoteIp
+                ModeAddrRadio.IsChecked = true;
+                HostBox.Text = s.Host;
+                PortBox.Text = s.Port.ToString();
+                Connect_Click(this, new RoutedEventArgs());
+                break;
+        }
+        RefreshRecent();
+    }
+
+    /// <summary>Open the embedded RDP window (single-window: hide this while it is up), optionally from a saved session.</summary>
+    private void OpenRdp(SavedSession? s = null)
+    {
+        try
+        {
+            string host = s != null
+                ? (s.Port is 0 or 3389 ? s.Host : $"{s.Host}:{s.Port}")
+                : HostBox.Text.Trim();
+            var win = new RdpWindow(host);
+            if (s != null) win.ApplySaved(s, _config);
+            win.Closed += (_, _) => { Show(); Activate(); RefreshRecent(); };
+            Hide();
+            win.Show();
+        }
+        catch (Exception ex)
+        {
+            Services.Diag.Log("OpenRdp FAILED: " + ex);
+            Show();
+            SetStatus($"Gagal membuka RDP tertanam: {ex.Message}");
+        }
+    }
+
     /// <summary>
     /// Open a real Windows RDP session embedded inside LiteRemote (the mstscax.dll ActiveX control),
     /// not by launching the external mstsc app. RDP authenticates with the Windows account
     /// (user + password) and can drive the login/lock screen — the one thing LiteRemote's own path
     /// cannot. Requires "Remote Desktop" enabled on the target (TCP 3389).
     /// </summary>
-    private void Rdp_Click(object sender, RoutedEventArgs e)
-    {
-        // Always open the embedded RDP window (like the old mstsc.exe always popped up). The host is
-        // only a prefill — the RDP window has its own Host field the user can fill in there.
-        var host = HostBox.Text.Trim();
-        try
-        {
-            // One window at a time: hide the connect window while the RDP session window is up, and
-            // restore it when the session closes. RdpWindow already unifies connect fields + live session,
-            // so the user only ever sees a single window — no confusing second popup alongside this one.
-            var win = new RdpWindow(host);
-            win.Closed += (_, _) => { Show(); Activate(); };
-            Hide();
-            win.Show();
-        }
-        catch (Exception ex)
-        {
-            Services.Diag.Log("Rdp_Click FAILED: " + ex);
-            Show();
-            SetStatus($"Gagal membuka RDP tertanam: {ex.Message}");
-        }
-    }
+    private void Rdp_Click(object sender, RoutedEventArgs e) => OpenRdp(null);
 
     private void DeleteSaved_Click(object sender, RoutedEventArgs e)
     {
@@ -157,6 +205,7 @@ public partial class MainWindow : Window
                 _config.RelayAddress = relay;
                 _config.Save();
                 ok = await _connection.ConnectViaRelayAsync(relay, id, credential, _settings);
+                if (ok) _config.UpsertSession(new SavedSession { Kind = SessionKind.LiteRemoteId, RelayId = id });
             }
             else
             {
@@ -171,10 +220,10 @@ public partial class MainWindow : Window
                     if (bind is null) return; // StartVpnAsync reported the error
                 }
                 ok = await _connection.ConnectAsync(host, port, credential, _settings, bind);
-                if (ok) _config.Remember(new SavedConnection { Host = host, Port = port, Label = host });
+                if (ok) _config.UpsertSession(new SavedSession { Kind = SessionKind.LiteRemoteIp, Host = host, Port = port });
             }
 
-            if (ok) EnterSession();
+            if (ok) { RefreshRecent(); EnterSession(); }
             else await DisconnectAsync(); // tears down the failed connection + any VPN tunnel
         }
         catch (Exception ex)

@@ -9,8 +9,12 @@
     <Grid>
         <!-- ================= CONNECT PANEL ================= -->
         <Grid x:Name="ConnectPanel">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="340"/>
+            </Grid.ColumnDefinitions>
             <!-- soft accent glow in the corner -->
-            <Ellipse Width="520" Height="520" HorizontalAlignment="Right" VerticalAlignment="Top"
+            <Ellipse Grid.Column="0" Width="520" Height="520" HorizontalAlignment="Right" VerticalAlignment="Top"
                      Margin="0,-180,-160,0" Opacity="0.20" IsHitTestVisible="False">
                 <Ellipse.Fill>
                     <RadialGradientBrush>
@@ -20,7 +24,41 @@
                 </Ellipse.Fill>
             </Ellipse>
 
-            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,10">
+            <!-- ===== right column: Recent / saved sessions (all types, one-click reconnect) ===== -->
+            <Border Grid.Column="1" Background="{StaticResource Panel}" BorderBrush="{StaticResource Stroke}" BorderThickness="1,0,0,0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="RECENT &amp; SAVED" Style="{StaticResource Label}" Margin="18,20,0,10"/>
+                    <TextBlock x:Name="RecentEmpty" DockPanel.Dock="Top" Visibility="Collapsed"
+                               Text="Belum ada sesi tersimpan. Konek sekali — sesinya muncul di sini untuk sambung ulang 1-klik."
+                               Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="18,0,16,8" FontSize="12"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl x:Name="RecentList" Margin="12,0,12,12">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,0,0,8">
+                                        <Button Style="{StaticResource Ghost}" Padding="10,9" HorizontalContentAlignment="Stretch"
+                                                Tag="{Binding}" Click="RecentCard_Click" ToolTip="Sambungkan ulang">
+                                            <StackPanel>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Border CornerRadius="4" Padding="6,1" Margin="0,0,8,0" Background="{StaticResource Accent}">
+                                                        <TextBlock Text="{Binding KindLabel}" FontSize="10" FontWeight="Bold" Foreground="White"/>
+                                                    </Border>
+                                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Style="{StaticResource Ghost}" Content="✕" Padding="7,2" FontSize="11"
+                                                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,6,0"
+                                                Tag="{Binding}" Click="RecentDelete_Click" ToolTip="Hapus dari daftar"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" Padding="0,10">
                 <StackPanel Width="470" Margin="0,28,0,28">
 
                     <!-- brand -->

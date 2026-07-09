@@ -28,6 +28,7 @@ public partial class RdpWindow : Window
     private readonly System.Windows.Forms.Panel _panel = new() { Dock = System.Windows.Forms.DockStyle.Fill };
     private volatile bool _sessionUp;   // true only after the RDP session is fully logged in (safe to resize)
     private bool _fullscreen;
+    private bool _autoConnect;   // set by ApplySaved → connect automatically once the control is ready
     private WindowState _prevState = WindowState.Normal;
     private WindowStyle _prevStyle = WindowStyle.SingleBorderWindow;
     private ResizeMode _prevResize = ResizeMode.CanResize;
@@ -96,6 +97,52 @@ public partial class RdpWindow : Window
 
         _poll.Start();
         if (string.IsNullOrWhiteSpace(UserBox.Text)) UserBox.Focus(); else PassBox.Focus();
+
+        if (_autoConnect)   // one-click reconnect from a saved session
+            Dispatcher.BeginInvoke(new Action(() => Connect_Click(this, new RoutedEventArgs())), DispatcherPriority.ApplicationIdle);
+    }
+
+    /// <summary>Prefill this window from a saved RDP session and auto-connect once ready (one-click reconnect).</summary>
+    public void ApplySaved(SavedSession s, ClientConfig cfg)
+    {
+        HostBox.Text = s.Port is 0 or 3389 ? s.Host : $"{s.Host}:{s.Port}";
+        if (!string.IsNullOrWhiteSpace(s.Username)) UserBox.Text = s.Username;
+        if (s.UseVpn && cfg.GetVpn(s.VpnProfileId) is { } v)
+        {
+            VpnExpander.IsExpanded = true;
+            VpnBox.Text = v.OvpnPath;
+            if (!string.IsNullOrWhiteSpace(v.Username) && VpnUserBox.Text.Trim().Length == 0) VpnUserBox.Text = v.Username;
+        }
+        LoadSavedRdpCreds();   // fill user/password from the saved secret for this host
+        _autoConnect = true;
+    }
+
+    /// <summary>Remember this RDP target (and any VPN it went through) so it appears in the Recent list
+    /// and one-click reconnect can bring the whole thing back up.</summary>
+    private void SaveRdpSessionToRecent(string host, int port)
+    {
+        try
+        {
+            var cfg = ClientConfig.Load();
+            string? vpnId = null;
+            var vpnPath = VpnBox.Text.Trim();
+            if (vpnPath.Length > 0)
+            {
+                var v = cfg.UpsertVpn(new VpnProfile
+                {
+                    OvpnPath = vpnPath, Username = VpnUserBox.Text.Trim(),
+                    SavePassword = SaveCredsCheck?.IsChecked == true,
+                });
+                vpnId = v.Id;
+            }
+            cfg.UpsertSession(new SavedSession
+            {
+                Kind = SessionKind.Rdp, Host = host, Port = port,
+                Username = UserBox.Text.Trim(), SavePassword = SaveCredsCheck?.IsChecked == true,
+                UseVpn = vpnId != null, VpnProfileId = vpnId,
+            });
+        }
+        catch { }
     }
 
     private async void Connect_Click(object sender, RoutedEventArgs e)
@@ -147,6 +194,7 @@ public partial class RdpWindow : Window
 
             StartRdp(host, port);
             SaveCredsIfWanted(VpnBox.Text.Trim(), host);   // remember passwords if the box is ticked
+            SaveRdpSessionToRecent(host, port);            // show this target in the Recent list
         }
         catch (Exception ex)
         {

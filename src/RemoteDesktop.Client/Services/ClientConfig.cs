@@ -98,12 +98,13 @@ public sealed class ClientConfig
                          Secrets.Keys.Any(k => k.StartsWith("rdp:") || (k.StartsWith("vpn:") && k.Contains('\\')));
         if (Sessions.Count > 0 || !hasLegacy) return;
 
+        // NOTE: we do NOT re-key the existing rdp:<host> / vpn:<path> secrets — RdpWindow still loads
+        // passwords by those keys. Migration only creates the Recent/Saved *entries* on top of them.
         var vpnByPath = new Dictionary<string, VpnProfile>(StringComparer.OrdinalIgnoreCase);
         VpnProfile EnsureVpn(string path)
         {
             if (vpnByPath.TryGetValue(path, out var v)) return v;
             v = new VpnProfile { OvpnPath = path, SavePassword = Secrets.ContainsKey("vpn:" + path) };
-            if (Secrets.TryGetValue("vpn:" + path, out var enc)) { Secrets["vpn:" + v.Id] = enc; Secrets.Remove("vpn:" + path); }
             VpnProfiles.Add(v); vpnByPath[path] = v;
             return v;
         }
@@ -124,15 +125,11 @@ public sealed class ClientConfig
         {
             var host = key.Substring(4);
             var combo = GetSecret(key);
-            string user = "", pass = "";
-            if (!string.IsNullOrEmpty(combo)) { var p = combo.Split('\n'); user = p[0]; if (p.Length > 1) pass = p[1]; }
-            var s = new SavedSession { Kind = SessionKind.Rdp, Host = host, Port = 3389, Username = user, Pinned = true, SavePassword = pass.Length > 0 };
-            Sessions.Add(s);
-            if (pass.Length > 0) SetSecret("session:" + s.Id, pass);
-            Secrets.Remove(key);
+            string user = "";
+            if (!string.IsNullOrEmpty(combo)) user = combo.Split('\n')[0];
+            Sessions.Add(new SavedSession { Kind = SessionKind.Rdp, Host = host, Port = 3389, Username = user, Pinned = true, SavePassword = true });
         }
 
-        LastVpnProfile = null;
         Save();
     }
 
