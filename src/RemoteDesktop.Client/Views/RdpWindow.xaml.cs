@@ -30,6 +30,7 @@ public partial class RdpWindow : Window
     private bool _fullscreen;
     private bool _autoConnect;   // set by ApplySaved/ApplyDirect → connect automatically once ready
     private bool _directMode;    // one-form connect: the connect bar is hidden (creds came from the hub)
+    private string? _directLabel; // optional display name for the saved session (from the main form)
     // If a hidden-bar auto-connect doesn't come up in time (bad host/creds), reveal the bar so the user
     // isn't stuck staring at a black window with no controls.
     private readonly DispatcherTimer _watchdog = new() { Interval = TimeSpan.FromSeconds(12) };
@@ -121,6 +122,7 @@ public partial class RdpWindow : Window
     /// <summary>Prefill this window from a saved RDP session and auto-connect once ready (one-click reconnect).</summary>
     public void ApplySaved(SavedSession s, ClientConfig cfg)
     {
+        _directLabel = string.IsNullOrWhiteSpace(s.Label) ? null : s.Label;
         HostBox.Text = s.Port is 0 or 3389 ? s.Host : $"{s.Host}:{s.Port}";
         if (!string.IsNullOrWhiteSpace(s.Username)) UserBox.Text = s.Username;
         bool hasVpn = false;
@@ -154,8 +156,10 @@ public partial class RdpWindow : Window
     /// profile) the hub collected, then connect without showing this window's own login form.
     /// </summary>
     public void ApplyDirect(string? user, string? password, bool remember,
-                            string? vpnProfilePath = null, string? vpnUser = null, string? vpnPass = null)
+                            string? vpnProfilePath = null, string? vpnUser = null, string? vpnPass = null,
+                            string? label = null)
     {
+        _directLabel = string.IsNullOrWhiteSpace(label) ? null : label.Trim();
         if (!string.IsNullOrWhiteSpace(user)) UserBox.Text = user.Trim();
         if (password != null) PassBox.Password = password;
 
@@ -221,7 +225,7 @@ public partial class RdpWindow : Window
             }
             cfg.UpsertSession(new SavedSession
             {
-                Kind = SessionKind.Rdp, Host = host, Port = port,
+                Kind = SessionKind.Rdp, Host = host, Port = port, Label = _directLabel ?? "",
                 Username = UserBox.Text.Trim(), SavePassword = SaveCredsCheck?.IsChecked == true,
                 UseVpn = vpnId != null, VpnProfileId = vpnId,
             });

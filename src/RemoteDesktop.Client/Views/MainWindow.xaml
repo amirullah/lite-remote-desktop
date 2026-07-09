@@ -109,12 +109,16 @@
                                 </UniformGrid>
                             </Border>
 
+                            <!-- optional display name (same field as the edit dialog) -->
+                            <TextBlock Text="NAMA (OPSIONAL)" Style="{StaticResource Label}" Margin="2,18,0,5"/>
+                            <TextBox x:Name="NameBox"/>
+
                             <!-- ID mode -->
                             <StackPanel x:Name="IdModePanel" Margin="0,18,0,0" Visibility="Collapsed">
                                 <TextBlock Text="PARTNER ID" Style="{StaticResource Label}"/>
                                 <TextBox x:Name="IdBox" FontSize="22" FontWeight="SemiBold"
                                          Padding="12,10" Text=""/>
-                                <TextBlock Text="Enter the 9-digit ID shown on the remote computer."
+                                <TextBlock Text="Masukkan ID 9-digit yang tampil di komputer tujuan."
                                            Foreground="{StaticResource Muted}" FontSize="11.5" Margin="2,6,0,0"/>
                             </StackPanel>
 
@@ -137,7 +141,7 @@
                                 </Grid>
                             </StackPanel>
 
-                            <!-- credentials (LiteRemote protocol only; RDP logs in inside its own window) -->
+                            <!-- credentials (LiteRemote protocol: by address or ID) -->
                             <StackPanel x:Name="LoginSection">
                                 <TextBlock Text="SIGN IN WITH" Style="{StaticResource Label}" Margin="2,18,0,5"/>
                                 <Border Background="{StaticResource Bg}" CornerRadius="10" Padding="4"
@@ -157,18 +161,17 @@
                                               Content="Ingat password (DPAPI — akun Windows ini) untuk sambung 1-klik"
                                               ToolTip="Menyimpan password terenkripsi agar sesi ini bisa disambung ulang dari daftar Recent tanpa mengetik lagi."/>
                                     <TextBlock Foreground="{StaticResource Muted}" FontSize="11.5" Margin="2,6,0,0" TextWrapping="Wrap"
-                                               Text="The password created on the remote computer: LiteRemote Host tray icon → “Set access password”."/>
+                                               Text="Password yang dibuat di komputer tujuan: ikon tray LiteRemote Host → “Set access password”."/>
                                 </StackPanel>
                                 <StackPanel x:Name="GoogleArea" Margin="0,12,0,0" Visibility="Collapsed">
                                     <TextBlock Text="GOOGLE OAUTH CLIENT ID" Style="{StaticResource Label}"/>
                                     <TextBox x:Name="GoogleClientIdBox"/>
-                                    <TextBlock Text="A browser window will open to sign you in."
+                                    <TextBlock Text="Jendela browser akan terbuka untuk login."
                                                Foreground="{StaticResource Muted}" FontSize="11.5" Margin="2,6,0,0"/>
                                 </StackPanel>
                             </StackPanel>
 
-                            <!-- RDP credentials (shown only for the Windows RDP type) — fill here once and
-                                 connect directly; no second login form in the RDP window. -->
+                            <!-- RDP credentials (Windows RDP type) — fill here once, connect directly -->
                             <StackPanel x:Name="RdpCredPanel" Visibility="Collapsed" Margin="0,4,0,0">
                                 <TextBlock Text="WINDOWS USERNAME" Style="{StaticResource Label}" Margin="2,14,0,5"/>
                                 <TextBox x:Name="RdpUserBox"/>
@@ -178,43 +181,25 @@
                                           Content="Ingat user &amp; password (DPAPI) untuk sambung 1-klik"
                                           ToolTip="Menyimpan kredensial Windows terenkripsi agar RDP ini bisa disambung ulang dari Recent tanpa mengetik lagi."/>
                                 <TextBlock Foreground="{StaticResource Muted}" FontSize="11.5" Margin="2,6,0,0" TextWrapping="Wrap"
-                                           Text="Login akun Windows PC tujuan. RDP bisa menembus layar login. Kosongkan password untuk memasukkannya di layar RDP. VPN (bila perlu) diatur di Advanced."/>
+                                           Text="Login akun Windows PC tujuan. RDP bisa menembus layar login. Kosongkan password untuk memasukkannya di layar RDP."/>
                             </StackPanel>
 
-                            <!-- connect (label adapts to the chosen type) -->
-                            <Button x:Name="ConnectButton" Content="Connect" FontSize="15"
-                                    Padding="16,12" Margin="0,20,0,0" Click="Connect_Click"/>
-                            <TextBlock x:Name="StatusText" Foreground="{StaticResource Muted}"
-                                       TextWrapping="Wrap" Margin="2,10,0,0" MinHeight="16"/>
-                        </StackPanel>
-                    </Border>
-                    </Grid>
-
-                    <!-- advanced -->
-                    <Expander x:Name="AdvancedExpander" Header="Advanced — performance, display, VPN &amp; relay"
-                              Foreground="{StaticResource Muted}" Margin="4,16,0,0">
-                        <Border Background="{StaticResource Panel}" CornerRadius="16" Padding="20" Margin="0,10,0,0"
-                                BorderBrush="{StaticResource Stroke}" BorderThickness="1">
-                            <StackPanel>
-                                <TextBlock Text="RELAY SERVER (for ID connections)" Style="{StaticResource Label}"/>
-                                <TextBox x:Name="RelayBox" Text=""/>
-                                <TextBlock Text="e.g. relay.example.com:7500 — same server the host registers with."
-                                           Foreground="{StaticResource Muted}" FontSize="11" Margin="2,5,0,0"/>
-
-                                <!-- FPS, resolution & quality live in the session toolbar only (applied
-                                     live), so there is exactly one place to control them. -->
-
-                                <TextBlock Text="NETWORK PATH" Style="{StaticResource Label}" Margin="2,16,0,5"/>
-                                <ComboBox x:Name="NetworkModeBox" SelectedIndex="0" SelectionChanged="NetworkMode_Changed">
-                                    <ComboBoxItem>Direct internet / LAN</ComboBoxItem>
-                                    <ComboBoxItem>Through VPN profile (this app only)</ComboBoxItem>
-                                </ComboBox>
-                                <StackPanel x:Name="VpnArea" Margin="0,8,0,0" Visibility="Collapsed">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBox x:Name="VpnProfileBox" Width="300" IsReadOnly="True" Text="(no .ovpn profile selected)"/>
-                                        <Button Content="Browse…" Style="{StaticResource Ghost}" Margin="8,0,0,0" Click="BrowseVpn_Click"/>
-                                    </StackPanel>
-                                    <Grid Margin="0,8,0,0">
+                            <!-- optional VPN (address &amp; RDP only — ID goes through the relay) -->
+                            <StackPanel x:Name="VpnToggleSection" Margin="0,16,0,0">
+                                <CheckBox x:Name="UseVpnCheck" Click="UseVpn_Changed"
+                                          Content="Sambungkan lewat VPN (OpenVPN split-tunnel)"
+                                          ToolTip="Menyalakan tunnel HANYA untuk host di atas; lalu tersambung otomatis. Perlu izin admin (UAC) sekali."/>
+                                <StackPanel x:Name="VpnArea" Margin="0,10,0,0" Visibility="Collapsed">
+                                    <TextBlock Text="PROFIL .OVPN" Style="{StaticResource Label}"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox x:Name="VpnProfileBox" Grid.Column="0" IsReadOnly="True" Text=""/>
+                                        <Button Grid.Column="1" Content="Pilih…" Style="{StaticResource Ghost}" Margin="8,0,0,0" Click="BrowseVpn_Click"/>
+                                    </Grid>
+                                    <Grid Margin="0,10,0,0">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="12"/>
@@ -229,18 +214,40 @@
                                             <PasswordBox x:Name="VpnPassBox"/>
                                         </StackPanel>
                                     </Grid>
-                                    <TextBlock Text="VPN user/password dipakai untuk Windows RDP di balik OpenVPN (split-tunnel). Diisi di sini agar tak perlu diketik lagi di jendela RDP."
-                                               Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="2,6,0,0"/>
                                 </StackPanel>
-
-                                <WrapPanel Margin="0,16,0,0">
-                                    <CheckBox x:Name="ClipboardCheck" Content="Sync clipboard" IsChecked="True" Margin="0,0,18,8"/>
-                                    <CheckBox x:Name="BlankScreenCheck" Content="Blank host screen" Margin="0,0,18,8"/>
-                                    <CheckBox x:Name="LockInputCheck" Content="Lock host keyboard/mouse" Margin="0,0,0,8"/>
-                                </WrapPanel>
                             </StackPanel>
-                        </Border>
-                    </Expander>
+
+                            <!-- Advanced — adapts to the connection type; sits right above Connect -->
+                            <Expander x:Name="AdvancedExpander" Header="Advanced" Foreground="{StaticResource Muted}" Margin="0,16,0,0">
+                                <Border Background="{StaticResource Bg}" CornerRadius="12" Padding="16" Margin="0,10,0,0"
+                                        BorderBrush="{StaticResource Stroke}" BorderThickness="1">
+                                    <StackPanel>
+                                        <StackPanel x:Name="AdvRelay" Visibility="Collapsed">
+                                            <TextBlock Text="RELAY SERVER (untuk koneksi ID)" Style="{StaticResource Label}"/>
+                                            <TextBox x:Name="RelayBox" Text=""/>
+                                            <TextBlock Text="mis. relay.example.com:7500 — server yang sama tempat host mendaftar."
+                                                       Foreground="{StaticResource Muted}" FontSize="11" Margin="2,5,0,0"/>
+                                        </StackPanel>
+                                        <StackPanel x:Name="AdvProtocolOpts" Visibility="Collapsed">
+                                            <TextBlock Text="OPSI SESI" Style="{StaticResource Label}" Margin="2,12,0,6"/>
+                                            <WrapPanel>
+                                                <CheckBox x:Name="ClipboardCheck" Content="Sinkron clipboard" IsChecked="True" Margin="0,0,18,8"/>
+                                                <CheckBox x:Name="BlankScreenCheck" Content="Gelapkan layar host" Margin="0,0,18,8"/>
+                                                <CheckBox x:Name="LockInputCheck" Content="Kunci keyboard/mouse host" Margin="0,0,0,8"/>
+                                            </WrapPanel>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </Expander>
+
+                            <!-- connect (label adapts to the chosen type) -->
+                            <Button x:Name="ConnectButton" Content="Connect" FontSize="15"
+                                    Padding="16,12" Margin="0,18,0,0" Click="Connect_Click"/>
+                            <TextBlock x:Name="StatusText" Foreground="{StaticResource Muted}"
+                                       TextWrapping="Wrap" Margin="2,10,0,0" MinHeight="16"/>
+                        </StackPanel>
+                    </Border>
+                    </Grid>
                 </StackPanel>
             </ScrollViewer>
         </Grid>

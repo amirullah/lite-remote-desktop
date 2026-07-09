@@ -30,6 +30,7 @@ public partial class MainWindow : Window
         var last = _config.Ordered.FirstOrDefault(x => x.Kind != SessionKind.LiteRemoteId && !string.IsNullOrWhiteSpace(x.Host));
         if (last != null) { HostBox.Text = last.Host; PortBox.Text = last.Port.ToString(); }
         RefreshRecent();
+        Mode_Changed(this, new RoutedEventArgs());   // apply the initial (address-mode) field layout
         Closing += (_, _) => Cleanup();
     }
 
@@ -81,6 +82,7 @@ public partial class MainWindow : Window
             case SessionKind.LiteRemoteId:
             {
                 ModeIdRadio.IsChecked = true;
+                NameBox.Text = s.Label;
                 IdBox.Text = s.RelayId;
                 if (RelayBox.Text.Trim().Length == 0) RelayBox.Text = _config.RelayAddress; // ID needs a relay
                 var cred = BuildSavedCredential(s);
@@ -100,18 +102,11 @@ public partial class MainWindow : Window
             default: // LiteRemoteIp
             {
                 ModeAddrRadio.IsChecked = true;
+                NameBox.Text = s.Label;
                 HostBox.Text = s.Host;
                 PortBox.Text = s.Port.ToString();
 
-                string? vpnPath = null;
-                var vp = _config.GetVpn(s.VpnProfileId);
-                if (s.UseVpn && vp != null && System.IO.File.Exists(vp.OvpnPath))
-                {
-                    NetworkModeBox.SelectedIndex = 1;
-                    VpnProfileBox.Text = vp.OvpnPath;
-                    vpnPath = vp.OvpnPath;
-                }
-                else NetworkModeBox.SelectedIndex = 0;
+                string? vpnPath = RestoreVpn(s);   // ticks Use-VPN + prefills profile/user/pass if saved
 
                 var cred = BuildSavedCredential(s);
                 if (cred != null)
@@ -130,6 +125,25 @@ public partial class MainWindow : Window
         }
         // No RefreshRecent() here: each launched window refreshes the list on Closed, and refreshing now
         // would swap _config out from under an in-flight Google OAuth on the fall-back path.
+    }
+
+    /// <summary>Restore a saved session's VPN choice into the form; returns the profile path if usable.</summary>
+    private string? RestoreVpn(SavedSession s)
+    {
+        var vp = _config.GetVpn(s.VpnProfileId);
+        if (s.UseVpn && vp != null && System.IO.File.Exists(vp.OvpnPath))
+        {
+            UseVpnCheck.IsChecked = true;
+            VpnArea.Visibility = Visibility.Visible;
+            VpnProfileBox.Text = vp.OvpnPath;
+            VpnUserBox.Text = vp.Username;
+            var vpass = _config.GetSecret("vpn:" + vp.OvpnPath);
+            if (!string.IsNullOrEmpty(vpass)) VpnPassBox.Password = vpass;
+            return vp.OvpnPath;
+        }
+        UseVpnCheck.IsChecked = false;
+        VpnArea.Visibility = Visibility.Collapsed;
+        return null;
     }
 
     /// <summary>No remembered password: prefill the form and let the user finish (Google reconnects via browser).</summary>
@@ -180,6 +194,16 @@ public partial class MainWindow : Window
                 if (host.Length > 0 && !host.Contains(':') &&
                     int.TryParse(PortBox.Text, out var p) && p is not (0 or 3389))
                     host = $"{host}:{p}";
+
+                // ---- validate the main-form RDP inputs (password may be left blank on purpose) ----
+                if (host.Length == 0) { Invalid("Masukkan alamat host untuk RDP.", HostBox); return; }
+                if (UseVpnCheck.IsChecked == true)
+                {
+                    if (string.IsNullOrWhiteSpace(VpnProfileBox.Text) || !System.IO.File.Exists(VpnProfileBox.Text))
+                    { Invalid("Pilih profil .ovpn yang valid untuk VPN.", VpnProfileBox); return; }
+                    if (VpnUserBox.Text.Trim().Length == 0) { Invalid("Isi VPN user.", VpnUserBox); return; }
+                    if (VpnPassBox.Password.Length == 0) { Invalid("Isi VPN password.", VpnPassBox); return; }
+                }
             }
             if (host.Length == 0) { SetStatus("Masukkan alamat host untuk RDP."); return; }
 
@@ -190,14 +214,11 @@ public partial class MainWindow : Window
             }
             else
             {
-                // Fill once, connect directly: hand the Windows credentials AND the VPN profile+user+pass
-                // (from Advanced) straight to the RDP window, which connects without showing its own form.
-                string? vpnPath = null;
-                if (NetworkModeBox.SelectedIndex == 1 &&
-                    !string.IsNullOrWhiteSpace(VpnProfileBox.Text) && System.IO.File.Exists(VpnProfileBox.Text))
-                    vpnPath = VpnProfileBox.Text;
+                string? vpnPath = UseVpnCheck.IsChecked == true &&
+                    !string.IsNullOrWhiteSpace(VpnProfileBox.Text) && System.IO.File.Exists(VpnProfileBox.Text)
+                    ? VpnProfileBox.Text : null;
                 win.ApplyDirect(RdpUserBox.Text, RdpPassBox.Password, RdpSaveCheck.IsChecked == true,
-                                vpnPath, VpnUserBox.Text, VpnPassBox.Password);
+                                vpnPath, VpnUserBox.Text, VpnPassBox.Password, NameBox.Text.Trim());
             }
             win.Closed += (_, _) => RefreshRecent();
             win.Show();
@@ -212,14 +233,24 @@ public partial class MainWindow : Window
 
     private void Mode_Changed(object sender, RoutedEventArgs e)
     {
-        if (IdModePanel is null || AddrModePanel is null || LoginSection is null || RdpCredPanel is null) return;
+        if (IdModePanel is null || AddrModePanel is null || LoginSection is null || RdpCredPanel is null ||
+            VpnToggleSection is null || AdvRelay is null || AdvProtocolOpts is null || AdvancedExpander is null) return;
         bool idMode = ModeIdRadio.IsChecked == true;
         bool rdpMode = ModeRdpRadio.IsChecked == true;
 
         IdModePanel.Visibility = idMode ? Visibility.Visible : Visibility.Collapsed;
-        AddrModePanel.Visibility = idMode ? Visibility.Collapsed : Visibility.Visible; // address for LiteRemote-IP + RDP
-        LoginSection.Visibility = rdpMode ? Visibility.Collapsed : Visibility.Visible;  // protocol sign-in
-        RdpCredPanel.Visibility = rdpMode ? Visibility.Visible : Visibility.Collapsed;  // Windows RDP sign-in
+        AddrModePanel.Visibility = idMode ? Visibility.Collapsed : Visibility.Visible;  // address for LiteRemote-IP + RDP
+        LoginSection.Visibility = rdpMode ? Visibility.Collapsed : Visibility.Visible;   // protocol sign-in (IP + ID)
+        RdpCredPanel.Visibility = rdpMode ? Visibility.Visible : Visibility.Collapsed;   // Windows RDP sign-in
+
+        // VPN only where it applies: direct address (IP) and RDP. ID connects through the relay.
+        VpnToggleSection.Visibility = idMode ? Visibility.Collapsed : Visibility.Visible;
+
+        // Advanced adapts: relay only for ID; session options for the protocol (IP + ID); nothing for RDP.
+        AdvRelay.Visibility = idMode ? Visibility.Visible : Visibility.Collapsed;
+        AdvProtocolOpts.Visibility = rdpMode ? Visibility.Collapsed : Visibility.Visible;
+        AdvancedExpander.Visibility = rdpMode ? Visibility.Collapsed : Visibility.Visible;
+
         ConnectButton.Content = rdpMode ? "Buka Windows RDP" : "Connect";
 
         // Nudge the port to the right service when the type changes (only if still on the other default).
@@ -240,55 +271,71 @@ public partial class MainWindow : Window
             bool idMode = ModeIdRadio.IsChecked == true;
             bool savePwd = AuthPasswordRadio.IsChecked == true && SavePasswordCheck.IsChecked == true;
             var auth = AuthGoogleRadio.IsChecked == true ? ProtocolAuth.Google : ProtocolAuth.Password;
+            bool useVpn = !idMode && UseVpnCheck.IsChecked == true;
 
-            Credential? credential = await BuildCredentialAsync();
-            if (credential is null) { SetStatus("Pilih metode login yang valid (isi password atau client id Google)."); return; }
-
-            var req = new SessionRequest
-            {
-                IdMode = idMode,
-                Credential = credential,
-                Settings = BuildInitialSettings(),
-            };
+            // ---- validate required fields (optional ones excepted) ----
+            string relay = RelayBox.Text.Trim();
+            string id = Shared.Relay.RelayProtocol.NormalizeId(IdBox.Text);
+            string host = HostBox.Text.Trim();
+            int port = 7443;
 
             if (idMode)
             {
-                string relay = RelayBox.Text.Trim();
-                string id = Shared.Relay.RelayProtocol.NormalizeId(IdBox.Text);
-                if (relay.Length == 0) { SetStatus("Set relay server di Advanced dulu."); return; }
-                if (id.Length != 9) { SetStatus("Masukkan ID mitra 9 digit lengkap."); return; }
+                if (relay.Length == 0) { Invalid("Isi Relay server (wajib untuk koneksi ID)."); AdvancedExpander.IsExpanded = true; RelayBox.Focus(); return; }
+                if (id.Length != 9) { Invalid("Masukkan Partner ID 9 digit lengkap.", IdBox); return; }
+            }
+            else
+            {
+                if (host.Length == 0) { Invalid("Masukkan Host address.", HostBox); return; }
+                if (!int.TryParse(PortBox.Text.Trim(), out port) || port is < 1 or > 65535) { Invalid("Port tidak valid (1–65535).", PortBox); return; }
+            }
+            if (auth == ProtocolAuth.Password && PasswordBox.Password.Length == 0) { Invalid("Isi Host access password.", PasswordBox); return; }
+            if (auth == ProtocolAuth.Google && GoogleClientIdBox.Text.Trim().Length == 0) { Invalid("Isi Google OAuth client id.", GoogleClientIdBox); return; }
+
+            string? vpnPath = null;
+            if (useVpn)
+            {
+                if (string.IsNullOrWhiteSpace(VpnProfileBox.Text) || !System.IO.File.Exists(VpnProfileBox.Text))
+                { Invalid("Pilih profil .ovpn yang valid.", VpnProfileBox); return; }
+                vpnPath = VpnProfileBox.Text.Trim();
+            }
+
+            // ---- build the credential (Google may open a browser) ----
+            Credential? credential = await BuildCredentialAsync();
+            if (credential is null) { SetStatus("Login gagal / dibatalkan."); return; }
+
+            var req = new SessionRequest { IdMode = idMode, Credential = credential, Settings = BuildInitialSettings() };
+            string label = NameBox.Text.Trim();
+
+            if (idMode)
+            {
                 _config.RelayAddress = relay; _config.Save();
                 req.Relay = relay;
                 req.Id = id;
                 req.Descriptor = StableId(new SavedSession
                 {
-                    Kind = SessionKind.LiteRemoteId, RelayId = id, Auth = auth, SavePassword = savePwd,
+                    Kind = SessionKind.LiteRemoteId, RelayId = id, Auth = auth, SavePassword = savePwd, Label = label,
                 });
             }
             else
             {
-                if (!int.TryParse(PortBox.Text, out int port)) port = 7443;
-                string host = HostBox.Text.Trim();
-                if (host.Length == 0) { SetStatus("Masukkan alamat host."); return; }
                 req.Host = host;
                 req.Port = port;
 
                 string? vpnId = null;
-                if (NetworkModeBox.SelectedIndex == 1)
+                if (vpnPath != null)
                 {
-                    if (string.IsNullOrWhiteSpace(VpnProfileBox.Text) || !System.IO.File.Exists(VpnProfileBox.Text))
-                    { SetStatus("Pilih profil .ovpn yang valid dulu."); return; }
-                    req.VpnProfilePath = VpnProfileBox.Text;
-                    // Remember the profile so it shows up for reuse and reconnect.
-                    var vpn = _config.UpsertVpn(new VpnProfile { OvpnPath = VpnProfileBox.Text });
+                    req.VpnProfilePath = vpnPath;
+                    var vpn = _config.UpsertVpn(new VpnProfile { OvpnPath = vpnPath, Username = VpnUserBox.Text.Trim(), SavePassword = savePwd });
                     vpnId = vpn.Id;
-                    _config.LastVpnProfile = VpnProfileBox.Text; _config.Save();
+                    if (savePwd && VpnPassBox.Password.Length > 0) _config.SetSecret("vpn:" + vpnPath, VpnPassBox.Password);
+                    _config.LastVpnProfile = vpnPath; _config.Save();
                 }
 
                 req.Descriptor = StableId(new SavedSession
                 {
                     Kind = SessionKind.LiteRemoteIp, Host = host, Port = port,
-                    UseVpn = vpnId != null, VpnProfileId = vpnId, Auth = auth, SavePassword = savePwd,
+                    UseVpn = vpnId != null, VpnProfileId = vpnId, Auth = auth, SavePassword = savePwd, Label = label,
                 });
             }
 
@@ -368,16 +415,23 @@ public partial class MainWindow : Window
             GoogleClientIdBox.Text = _config.GoogleClientId;
     }
 
-    private void NetworkMode_Changed(object sender, SelectionChangedEventArgs e)
+    private void UseVpn_Changed(object sender, RoutedEventArgs e)
     {
         if (VpnArea is null) return;
-        VpnArea.Visibility = NetworkModeBox.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
+        VpnArea.Visibility = UseVpnCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void BrowseVpn_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new OpenFileDialog { Filter = "OpenVPN profile (*.ovpn)|*.ovpn|All files|*.*" };
         if (dlg.ShowDialog() == true) VpnProfileBox.Text = dlg.FileName;
+    }
+
+    /// <summary>Show a validation message and focus the offending field.</summary>
+    private void Invalid(string msg, Control? focus = null)
+    {
+        SetStatus(msg);
+        focus?.Focus();
     }
 
     private void SetStatus(string text) => StatusText.Text = text;
