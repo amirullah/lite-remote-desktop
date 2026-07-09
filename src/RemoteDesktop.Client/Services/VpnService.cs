@@ -23,6 +23,7 @@ public sealed class VpnService : IAsyncDisposable
 {
     private Process? _process;
     private readonly string _openVpnExe;
+    private string? _authFile;   // temp auth-user-pass file, deleted on dispose
 
     public IPAddress? TunnelAddress { get; private set; }
     public bool IsUp => TunnelAddress != null;
@@ -36,12 +37,21 @@ public sealed class VpnService : IAsyncDisposable
     /// Start the tunnel for <paramref name="remoteHost"/> using <paramref name="ovpnProfilePath"/>.
     /// Returns the tunnel-local IPv4 to bind the connection socket to, or throws on failure.
     /// </summary>
-    public async Task<IPAddress> StartAsync(string ovpnProfilePath, string remoteHost, CancellationToken ct = default)
+    public async Task<IPAddress> StartAsync(string ovpnProfilePath, string remoteHost,
+        CancellationToken ct = default, string? user = null, string? pass = null)
     {
         if (!File.Exists(ovpnProfilePath))
             throw new FileNotFoundException("OpenVPN profile not found.", ovpnProfilePath);
 
         var hostIp = await ResolveAsync(remoteHost, ct).ConfigureAwait(false);
+
+        // If the profile wants interactive auth, feed the supplied credentials via a temp file so the
+        // tunnel authenticates without a prompt. Written to the user-scoped temp dir, deleted on dispose.
+        if (!string.IsNullOrWhiteSpace(user) && !string.IsNullOrEmpty(pass))
+        {
+            _authFile = Path.Combine(Path.GetTempPath(), "lr-vpn-" + Guid.NewGuid().ToString("N") + ".txt");
+            await File.WriteAllTextAsync(_authFile, user.Trim() + "\n" + pass + "\n", ct).ConfigureAwait(false);
+        }
 
         // Snapshot existing tunnel-capable adapters so we can detect the new one.
         var before = SnapshotTunnelAdapters();
@@ -63,6 +73,11 @@ public sealed class VpnService : IAsyncDisposable
         psi.ArgumentList.Add(hostIp.ToString());
         psi.ArgumentList.Add("255.255.255.255");
         psi.ArgumentList.Add("vpn_gateway");
+        if (_authFile != null)
+        {
+            psi.ArgumentList.Add("--auth-user-pass");
+            psi.ArgumentList.Add(_authFile);
+        }
 
         _process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start OpenVPN.");
 
@@ -131,6 +146,7 @@ public sealed class VpnService : IAsyncDisposable
         }
         catch { }
         _process?.Dispose();
+        if (_authFile != null) { try { File.Delete(_authFile); } catch { } _authFile = null; }
         TunnelAddress = null;
     }
 }

@@ -8,10 +8,10 @@ namespace RemoteDesktop.Client.Services;
 public enum AppTheme { System, Light, Dark }
 
 /// <summary>
-/// Live dark/light theming. The palette brushes are declared once in App.xaml and never replaced —
-/// we mutate each brush's <see cref="SolidColorBrush.Color"/> in place, so every <c>StaticResource</c>
-/// reference updates instantly (WPF raises change notifications on the shared, unfrozen brush objects).
-/// "System" follows the OS light/dark setting and re-applies when it changes.
+/// Live dark/light theming. On each apply we REPLACE the palette brush objects in the application
+/// resources (resource brushes get frozen, so in-place Color mutation wouldn't propagate). Every
+/// consumer therefore references these keys via <c>DynamicResource</c>, so swapping the object repaints
+/// the whole UI instantly. "System" follows the OS light/dark setting and re-applies when it changes.
 /// </summary>
 public static class ThemeManager
 {

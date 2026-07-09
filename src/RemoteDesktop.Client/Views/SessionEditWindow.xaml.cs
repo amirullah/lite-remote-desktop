@@ -33,8 +33,7 @@ public partial class SessionEditWindow : Window
         // ----- account credentials -----
         if (s.Kind == SessionKind.Rdp)
         {
-            UserLabel.Text = "WINDOWS USER";
-            PassLabel.Text = "WINDOWS PASSWORD";
+            // UserLabel/PassLabel keep their XAML {loc:Loc Edit.Windows*Label} bindings (Windows user/password).
             var combo = cfg.GetSecret("rdp:" + s.Host);
             if (!string.IsNullOrEmpty(combo))
             {
@@ -55,7 +54,7 @@ public partial class SessionEditWindow : Window
         else // LiteRemote protocol, password auth
         {
             UserRow.Visibility = Visibility.Collapsed;
-            PassLabel.Text = "PASSWORD";
+            PassLabel.Text = Loc.T("Edit.PasswordLabel");
             var pwd = cfg.GetSecret("session:" + s.Id);
             if (!string.IsNullOrEmpty(pwd)) PassBox.Password = pwd;
         }
@@ -78,7 +77,7 @@ public partial class SessionEditWindow : Window
 
     private void BrowseVpn_Click(object sender, RoutedEventArgs e)
     {
-        var dlg = new Microsoft.Win32.OpenFileDialog { Filter = "OpenVPN profile (*.ovpn)|*.ovpn|All files|*.*" };
+        var dlg = new Microsoft.Win32.OpenFileDialog { Filter = Loc.T("Common.OvpnFileFilter") };
         if (dlg.ShowDialog(this) == true) VpnProfileBox.Text = dlg.FileName;
     }
 
@@ -97,7 +96,7 @@ public partial class SessionEditWindow : Window
         if (useVpn)
         {
             var path = VpnProfileBox.Text.Trim();
-            if (!File.Exists(path)) { StatusText.Text = "Profil .ovpn tidak ditemukan."; return; }
+            if (!File.Exists(path)) { StatusText.Text = Loc.T("Edit.Status.OvpnNotFound"); return; }
             var v = _cfg.UpsertVpn(new VpnProfile { OvpnPath = path, Username = VpnUserBox.Text.Trim(), SavePassword = saveVpnPwd });
             vpnId = v.Id;
             _cfg.SetSecret("vpn:" + path, saveVpnPwd ? VpnPassBox.Password : null);

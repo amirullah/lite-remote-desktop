@@ -35,8 +35,8 @@ public partial class MainWindow : Window
 
         RelayBox.Text = _config.RelayAddress;
         if (!string.IsNullOrEmpty(_config.GoogleClientId)) GoogleClientIdBox.Text = _config.GoogleClientId;
-        // Pre-fill the address from the most-recently-used saved session so reconnecting is one click.
-        var last = _config.Ordered.FirstOrDefault(x => x.Kind != SessionKind.LiteRemoteId && !string.IsNullOrWhiteSpace(x.Host));
+        // Pre-fill the address from the most-recent LiteRemote-address session so reconnecting is one click.
+        var last = _config.Ordered.FirstOrDefault(x => x.Kind == SessionKind.LiteRemoteIp && !string.IsNullOrWhiteSpace(x.Host));
         if (last != null) { HostBox.Text = last.Host; PortBox.Text = last.Port.ToString(); }
         RefreshRecent();
         Mode_Changed(this, new RoutedEventArgs());   // apply the initial (address-mode) field layout
@@ -117,6 +117,10 @@ public partial class MainWindow : Window
 
                 string? vpnPath = RestoreVpn(s);   // ticks Use-VPN + prefills profile/user/pass if saved
 
+                // The saved session wanted VPN but its .ovpn is gone — don't silently connect OUTSIDE the
+                // tunnel; prefill the form and let the user re-pick it.
+                if (s.UseVpn && vpnPath == null) { SetStatus(Loc.T("Msg.VpnProfileMissing")); FallBackToForm(s); break; }
+
                 var cred = BuildSavedCredential(s);
                 if (cred != null)
                 {
@@ -124,7 +128,7 @@ public partial class MainWindow : Window
                     {
                         IdMode = false, Host = s.Host, Port = s.Port,
                         Credential = cred, Settings = BuildInitialSettings(),
-                        VpnProfilePath = vpnPath,
+                        VpnProfilePath = vpnPath, VpnUser = VpnUserBox.Text, VpnPass = VpnPassBox.Password,
                         Descriptor = s with { LastUsedUtc = DateTime.UtcNow },
                     });
                 }
@@ -335,9 +339,14 @@ public partial class MainWindow : Window
                 if (vpnPath != null)
                 {
                     req.VpnProfilePath = vpnPath;
-                    var vpn = _config.UpsertVpn(new VpnProfile { OvpnPath = vpnPath, Username = VpnUserBox.Text.Trim(), SavePassword = savePwd });
+                    req.VpnUser = VpnUserBox.Text;
+                    req.VpnPass = VpnPassBox.Password;
+                    // Remember the profile + VPN username; remember the VPN password when 'remember' is
+                    // ticked (independent of the auth radio, so it also works for Google-auth sessions).
+                    bool rememberVpn = SavePasswordCheck.IsChecked == true;
+                    var vpn = _config.UpsertVpn(new VpnProfile { OvpnPath = vpnPath, Username = VpnUserBox.Text.Trim(), SavePassword = rememberVpn });
                     vpnId = vpn.Id;
-                    if (savePwd && VpnPassBox.Password.Length > 0) _config.SetSecret("vpn:" + vpnPath, VpnPassBox.Password);
+                    _config.SetSecret("vpn:" + vpnPath, rememberVpn && VpnPassBox.Password.Length > 0 ? VpnPassBox.Password : null);
                     _config.LastVpnProfile = vpnPath; _config.Save();
                 }
 

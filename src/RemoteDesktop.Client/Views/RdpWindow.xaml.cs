@@ -66,7 +66,7 @@ public partial class RdpWindow : Window
             if (st == 1) { _watchdog.Stop(); return; }   // came up — nothing to do
             if (st == 2) return;                          // still connecting — keep waiting (timer repeats)
             _watchdog.Stop();                             // genuinely failed/idle — reveal the form
-            RevealForm("Gagal menyambung RDP — periksa host / user / password (atau aktifkan RDP di PC tujuan), lalu tekan Hubungkan.");
+            RevealForm(Loc.T("Rdp.Status.ConnectFailedCheck"));
         };
         _poll.Tick += (_, _) => UpdateConnectionState();
         _resize.Tick += (_, _) => { _resize.Stop(); ApplyRemoteSize(); };
@@ -108,7 +108,7 @@ public partial class RdpWindow : Window
             ConnectFields.Visibility = Visibility.Visible;   // a hands-off connect may have hidden it
             ConnectBtn.IsEnabled = false;
             DisconnectBtn.IsEnabled = false;
-            Status("Kontrol Windows RDP tidak tersedia di PC ini: " + ex.Message);
+            Status(Loc.F("Rdp.Status.ControlUnavailableEx", ex.Message));
             return;
         }
 
@@ -146,8 +146,8 @@ public partial class RdpWindow : Window
         else
         {
             if (hasVpn) VpnExpander.IsExpanded = true;
-            if (!haveRdpPwd) { PassBox.Focus(); Status("Masukkan password Windows lalu tekan Hubungkan."); }
-            else { VpnPassBox.Focus(); Status("Isi VPN user & password lalu tekan Hubungkan."); }
+            if (!haveRdpPwd) { PassBox.Focus(); Status(Loc.T("Rdp.Status.EnterWindowsPassword")); }
+            else { VpnPassBox.Focus(); Status(Loc.T("Rdp.Status.FillVpnCreds")); }
         }
     }
 
@@ -189,7 +189,7 @@ public partial class RdpWindow : Window
         if (!hasVpn) VpnBox.Text = string.Empty;   // guarantee no phantom-VPN gate diverts a plain connect
         ConnectFields.Visibility = Visibility.Collapsed;
         VpnExpander.Visibility = Visibility.Collapsed;
-        Status(hasVpn ? "Menyalakan VPN & menghubungkan RDP…" : "Menghubungkan RDP…");
+        Status(hasVpn ? Loc.T("Rdp.Status.StartingVpnAndRdp") : Loc.T("Rdp.Status.ConnectingRdp"));
     }
 
     /// <summary>Bring the connect inputs back (e.g. a hands-off connect failed) so the user can fix things.</summary>
@@ -235,9 +235,9 @@ public partial class RdpWindow : Window
 
     private async void Connect_Click(object sender, RoutedEventArgs e)
     {
-        if (!_rdpReady) { Status("Kontrol Windows RDP tidak tersedia di PC ini."); return; }
+        if (!_rdpReady) { Status(Loc.T("Rdp.Status.ControlUnavailable")); return; }
         var raw = HostBox.Text.Trim();
-        if (raw.Length == 0) { Status("Isi alamat host dulu."); HostBox.Focus(); return; }
+        if (raw.Length == 0) { Status(Loc.T("Rdp.Status.EnterHostFirst")); HostBox.Focus(); return; }
         var (host, port) = SplitHostPort(raw);
 
         ConnectBtn.IsEnabled = false;
@@ -254,13 +254,12 @@ public partial class RdpWindow : Window
                 RememberVpn(vpn);
                 if (!SplitTunnelVpn.EngineAvailable)
                 {
-                    RevealForm("Mesin VPN belum ada di build ini. Install ulang LiteRemote (versi ber-VPN), " +
-                               "atau nyalakan VPN manual lalu tekan Hubungkan.");
+                    RevealForm(Loc.T("Rdp.Status.VpnEngineMissing"));
                     return;
                 }
                 if (VpnUserBox.Text.Trim().Length == 0 || VpnPassBox.Password.Length == 0)
                 {
-                    RevealForm("Isi VPN user & VPN pass dulu untuk menyalakan tunnel.");
+                    RevealForm(Loc.T("Rdp.Status.FillVpnToStart"));
                     return;
                 }
 
@@ -268,11 +267,11 @@ public partial class RdpWindow : Window
                 await DisposeVpnAsync();
                 _vpn = new SplitTunnelVpn();
                 bool up = await _vpn.ConnectAsync(vpn, VpnUserBox.Text.Trim(), VpnPassBox.Password, host, Status, CancellationToken.None);
-                if (!up) { await DisposeVpnAsync(); RevealForm("Gagal menyalakan VPN — periksa profil, VPN user & VPN pass."); return; }
+                if (!up) { await DisposeVpnAsync(); RevealForm(Loc.T("Rdp.Status.VpnStartFailed")); return; }
 
                 if (!await WaitReachableAsync(host, port, TimeSpan.FromSeconds(15)))
                 {
-                    RevealForm($"VPN tersambung, tapi {host}:{port} belum terjangkau — cek IP host / RDP aktif di sana.");
+                    RevealForm(Loc.F("Rdp.Status.VpnUpHostUnreachable", host, port));
                     return;
                 }
             }
@@ -283,7 +282,7 @@ public partial class RdpWindow : Window
         }
         catch (Exception ex)
         {
-            RevealForm("Gagal memulai RDP: " + ex.Message);
+            RevealForm(Loc.F("Rdp.Status.StartRdpFailed", ex.Message));
         }
     }
 
@@ -309,7 +308,7 @@ public partial class RdpWindow : Window
         catch { try { ocx.SecuredSettings2.KeyboardHookMode = 1; } catch { } }
 
         ocx.Connect();
-        Status($"Menghubungkan RDP ke {host}:{port} …");
+        Status(Loc.F("Rdp.Status.ConnectingRdpTo", host, port));
         ConnectBtn.IsEnabled = false;
         DisconnectBtn.IsEnabled = true;
         // Now that RDP is actually negotiating, arm the reveal-the-form watchdog for a hands-off connect.
@@ -348,8 +347,8 @@ public partial class RdpWindow : Window
     {
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "Pilih profil OpenVPN (.ovpn)",
-            Filter = "Profil OpenVPN (*.ovpn)|*.ovpn|Semua berkas (*.*)|*.*",
+            Title = Loc.T("Rdp.PickVpnDialogTitle"),
+            Filter = Loc.T("Common.OvpnFileFilter"),
             CheckFileExists = true,
         };
         if (dlg.ShowDialog(this) == true) { VpnBox.Text = dlg.FileName; RememberVpn(dlg.FileName); }
@@ -458,7 +457,7 @@ public partial class RdpWindow : Window
         while (DateTime.UtcNow - start < max)
         {
             if (await IsReachableAsync(host, port, 1200)) return true;
-            Status($"Menunggu tunnel VPN & host {host}:{port} … ({(int)(DateTime.UtcNow - start).TotalSeconds}s)");
+            Status(Loc.F("Rdp.Status.WaitingTunnel", host, port, (int)(DateTime.UtcNow - start).TotalSeconds));
             await Task.Delay(1500);
         }
         return false;
@@ -508,7 +507,7 @@ public partial class RdpWindow : Window
     private void Disconnect_Click(object sender, RoutedEventArgs e)
     {
         try { if (_rdp.IsConnected) _rdp.Ocx.Disconnect(); } catch { }
-        Status("Terputus.");
+        Status(Loc.T("Rdp.Status.Disconnected"));
     }
 
     // ---- Fullscreen (mstsc-style): hide the top bar, borderless-maximize; F11/Esc exits. ----
@@ -532,7 +531,7 @@ public partial class RdpWindow : Window
             WindowState = WindowState.Maximized;
             _fullscreen = true;
             _hover.Start();   // reveal the overlay toolbar on top-edge hover (Esc/F11 are eaten by RDP)
-            Status("Layar penuh — arahkan mouse ke tepi ATAS untuk toolbar (keluar / putus).");
+            Status(Loc.T("Rdp.Status.FullscreenHint"));
         }
         else
         {
@@ -542,7 +541,7 @@ public partial class RdpWindow : Window
             ResizeMode = _prevResize;
             WindowState = _prevState;
             _fullscreen = false;
-            Status(_rdp.IsConnected ? "Terhubung." : "Isi Host + User + Password Windows, lalu tekan Hubungkan.");
+            Status(_rdp.IsConnected ? Loc.T("Rdp.Status.Connected") : Loc.T("Rdp.StatusDefault"));
         }
     }
 
@@ -581,17 +580,17 @@ public partial class RdpWindow : Window
 
         var hostLbl = new System.Windows.Controls.TextBlock
         {
-            Text = "  🖥  " + HostBox.Text.Trim() + "     (layar penuh)",
+            Text = "  🖥  " + HostBox.Text.Trim() + "     " + Loc.T("Rdp.Bar.FullscreenSuffix"),
             Foreground = System.Windows.Media.Brushes.White, FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0),
         };
         System.Windows.Controls.DockPanel.SetDock(hostLbl, System.Windows.Controls.Dock.Left);
 
-        var exit = MakeBarButton("⤢  Keluar layar penuh", "#2D7DF6");
+        var exit = MakeBarButton(Loc.T("Rdp.Bar.ExitFullscreen"), "#2D7DF6");
         exit.Click += (_, _) => ToggleFullscreen();
         System.Windows.Controls.DockPanel.SetDock(exit, System.Windows.Controls.Dock.Right);
 
-        var disc = MakeBarButton("Putus", "#C0453B");
+        var disc = MakeBarButton(Loc.T("Common.Disconnect"), "#C0453B");
         disc.Click += (_, _) => { Disconnect_Click(this, new RoutedEventArgs()); ToggleFullscreen(); };
         System.Windows.Controls.DockPanel.SetDock(disc, System.Windows.Controls.Dock.Right);
 
@@ -645,7 +644,7 @@ public partial class RdpWindow : Window
         {
             _watchdog.Stop();       // it came up — cancel the reveal-the-bar fallback
             _directMode = false;
-            Status("Terhubung.");
+            Status(Loc.T("Rdp.Status.Connected"));
             ConnectBtn.IsEnabled = false;
             DisconnectBtn.IsEnabled = true;
             ScheduleSessionUp();   // mark session up after a settle, then fit to the window
@@ -653,7 +652,7 @@ public partial class RdpWindow : Window
         else
         {
             _sessionUp = false;
-            Status("Terputus. Isi kredensial lalu tekan Hubungkan.");
+            Status(Loc.T("Rdp.Status.DisconnectedReconnect"));
             ConnectBtn.IsEnabled = true;
             DisconnectBtn.IsEnabled = false;
             // A session that came up then dropped: bring the connect inputs back so the user can reconnect.

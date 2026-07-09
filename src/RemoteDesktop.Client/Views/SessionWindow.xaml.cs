@@ -24,6 +24,8 @@ public sealed class SessionRequest
     public required Credential Credential;
     public SessionSettings Settings = new();
     public string? VpnProfilePath;      // null = direct (no VPN)
+    public string? VpnUser;             // for an auth-user-pass .ovpn
+    public string? VpnPass;
     public SavedSession Descriptor = new();  // saved to Recent on a successful connect
 }
 
@@ -86,19 +88,19 @@ public partial class SessionWindow : Window
             IPAddress? bind = null;
             if (_request.VpnProfilePath != null)
             {
-                SetOverlay("Menghubungkan…", "Menyalakan terowongan VPN…");
+                SetOverlay(Loc.T("Session.Connecting"), Loc.T("Session.Overlay.StartingVpn"));
                 _vpn = new VpnService();
-                bind = await _vpn.StartAsync(_request.VpnProfilePath, _request.Host);
+                bind = await _vpn.StartAsync(_request.VpnProfilePath, _request.Host, default, _request.VpnUser, _request.VpnPass);
                 if (bind is null)
                 {
-                    ShowDisconnected("Gagal menyalakan VPN — periksa profil .ovpn dan koneksi.");
+                    ShowDisconnected(Loc.T("Session.Disconnected.VpnFailed"));
                     await DisconnectAsync();
                     return;
                 }
             }
 
-            SetOverlay("Menghubungkan…",
-                _request.IdMode ? $"ID {_request.Id} lewat relay…" : $"{_request.Host}:{_request.Port}…");
+            SetOverlay(Loc.T("Session.Connecting"),
+                _request.IdMode ? Loc.F("Session.Overlay.IdViaRelay", _request.Id) : $"{_request.Host}:{_request.Port}…");
 
             _connection = new RemoteConnection(_pins);
             WireConnection(_connection);
@@ -129,13 +131,13 @@ public partial class SessionWindow : Window
                 // silently auto-reconnecting with the wrong credential.
                 if (!_request.Descriptor.SavePassword)
                     try { _config.SetSecret("session:" + _request.Descriptor.Id, null); _config.Save(); } catch { }
-                ShowDisconnected(_lastError ?? "Gagal terhubung.");
+                ShowDisconnected(_lastError ?? Loc.T("Session.Disconnected.Failed"));
                 await DisconnectAsync();
             }
         }
         catch (Exception ex)
         {
-            ShowDisconnected($"Error: {ex.Message}");
+            ShowDisconnected(Loc.F("Common.Status.Error", ex.Message));
             await DisconnectAsync();
         }
     }
@@ -151,17 +153,10 @@ public partial class SessionWindow : Window
 
         conn.ConfirmFingerprint = (endpoint, fingerprint, changed) => Dispatcher.Invoke(() =>
         {
-            string body = changed
-                ? $"Sertifikat keamanan untuk {endpoint} BERUBAH sejak terakhir Anda terhubung.\n\n" +
-                  $"Ini normal bila host diinstal ulang, atau alamat ini kini milik komputer lain " +
-                  $"(mis. setelah ganti router/DHCP). Jarang, bisa berarti ada yang menyadap koneksi.\n\n" +
-                  $"Sidik jari baru (bandingkan dengan host tray → Show status):\n\n{fingerprint}\n\n" +
-                  $"Percayai sertifikat ini dan lanjutkan?"
-                : $"Pertama kali terhubung ke {endpoint}.\n\n" +
-                  $"Pastikan sidik jari sertifikat ini sama dengan yang ditampilkan di host " +
-                  $"(host tray → Show status):\n\n{fingerprint}\n\nPercayai host ini?";
+            string body = Loc.F(changed ? "Session.Fingerprint.ChangedBody" : "Session.Fingerprint.FirstBody",
+                                endpoint, fingerprint);
             return MessageBox.Show(this, body,
-                changed ? "Sertifikat host berubah" : "Verifikasi identitas host",
+                Loc.T(changed ? "Session.Fingerprint.ChangedTitle" : "Session.Fingerprint.VerifyTitle"),
                 MessageBoxButton.YesNo,
                 changed ? MessageBoxImage.Warning : MessageBoxImage.Question) == MessageBoxResult.Yes;
         });
@@ -171,18 +166,17 @@ public partial class SessionWindow : Window
             if (state == ConnectionState.Failed &&
                 (msg.Contains("did not properly respond") || msg.Contains("refused") || msg.Contains("timed out")))
             {
-                msg += "  Periksa: LiteRemote Host berjalan di PC tujuan, alamat/ID benar, dan " +
-                       "port 7443 diizinkan lewat firewall-nya.";
+                msg += Loc.T("Session.Error.ConnectHint");
             }
             _lastError = msg;
             if (state is ConnectionState.Disconnected or ConnectionState.Failed)
             {
                 if (_inSession) ShowDisconnected(msg);
-                else SetOverlay("Menghubungkan…", msg);
+                else SetOverlay(Loc.T("Session.Connecting"), msg);
             }
             else if (!_inSession)
             {
-                SetOverlay("Menghubungkan…", msg);
+                SetOverlay(Loc.T("Session.Connecting"), msg);
             }
         });
 
@@ -190,7 +184,7 @@ public partial class SessionWindow : Window
         conn.FrameReceived += (_, _, tiles, _) => _surface?.ApplyFrame(tiles);
         conn.DisplaysReceived += displays => Dispatcher.Invoke(() => PopulateDisplays(displays));
         conn.StatReceived += stat => Dispatcher.Invoke(() =>
-            StatText.Text = $"{stat.Fps} fps · {stat.MbitsPerSecond:F1} Mbit/s · cap {stat.RoundTripMs} + enc {stat.EncodeMs} ms · {stat.EncoderName}");
+            StatText.Text = Loc.F("Session.StatFormat", stat.Fps, stat.MbitsPerSecond.ToString("F1"), stat.RoundTripMs, stat.EncodeMs, stat.EncoderName));
         conn.ClipboardReceived += data => Dispatcher.Invoke(() => _clipboard?.SetClipboard(data));
     }
 
@@ -229,7 +223,7 @@ public partial class SessionWindow : Window
         _input?.Detach();
         _input = null;
         RemoteImage.Source = null;
-        OverlayTitle.Text = "Terputus";
+        OverlayTitle.Text = Loc.T("Session.Disconnected.Title");
         OverlayStatus.Text = msg;
         OverlayClose.Visibility = Visibility.Visible;
         Overlay.Visibility = Visibility.Visible;
@@ -291,7 +285,7 @@ public partial class SessionWindow : Window
         DisplayBox.SelectionChanged -= Display_Changed;
         DisplayBox.Items.Clear();
         foreach (var d in displays)
-            DisplayBox.Items.Add($"#{d.Index} {d.Width}×{d.Height}{(d.IsPrimary ? " (primary)" : "")}");
+            DisplayBox.Items.Add($"#{d.Index} {d.Width}×{d.Height}{(d.IsPrimary ? Loc.T("Session.DisplayPrimarySuffix") : "")}");
         DisplayBox.SelectedIndex = Math.Min(_settings.DisplayIndex, displays.Count - 1);
         DisplayBox.SelectionChanged += Display_Changed;
 
