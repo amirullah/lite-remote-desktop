@@ -341,6 +341,18 @@ public partial class RdpWindow : Window
                 try { adv.RDPPort = port; } catch { }
                 try { adv.EnableCredSspSupport = true; } catch { }         // NLA
                 try { adv.AuthenticationLevel = 0; } catch { }             // don't hard-fail on cert
+
+                // --- speed + stability over a (possibly TCP) VPN link ---
+                // Disable eye-candy the link doesn't need: wallpaper(0x1), full-window-drag(0x2),
+                // menu animations(0x4), theming(0x8), cursor shadow(0x20) → far less to send, snappier.
+                try { adv.PerformanceFlags = 0x2F; } catch { }
+                try { adv.BitmapPersistence = 1; } catch { }               // cache tiles to disk → don't resend
+                try { adv.CachePersistenceActive = 1; } catch { }
+                try { adv.Compress = 1; } catch { }
+                try { adv.EnableAutoReconnect = true; } catch { }          // survive brief VPN drops
+                try { adv.MaxReconnectAttempts = 20; } catch { }
+                try { adv.keepAliveInterval = 20000; } catch { }           // detect dead links promptly
+
                 if (password.Length > 0) { try { adv.ClearTextPassword = password; } catch { } }
                 return;
             }
