@@ -72,6 +72,7 @@ public sealed class SplitTunnelVpn : IAsyncDisposable
                 Verb = "runas",
                 WindowStyle = ProcessWindowStyle.Hidden,
             });
+            if (_proc != null) VpnProcessTracker.Register(_proc);   // never leave an orphan tunnel
         }
         catch (Exception ex)
         {
@@ -207,6 +208,11 @@ public sealed class SplitTunnelVpn : IAsyncDisposable
         try { _reader?.Dispose(); } catch { }
         try { _writer?.Dispose(); } catch { }
         try { _mgmt?.Dispose(); } catch { }
+        // Belt-and-suspenders: if SIGTERM didn't take, force-kill (best-effort — an elevated engine may
+        // refuse a non-elevated kill, but the SIGTERM above already handles the normal case).
+        try { if (_proc is { HasExited: false }) _proc.Kill(entireProcessTree: true); } catch { }
+        if (_proc != null) VpnProcessTracker.Unregister(_proc);
+        _proc?.Dispose();
         _connected = false;
     }
 }

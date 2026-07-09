@@ -56,6 +56,13 @@ public partial class App : Application
         new Views.MainWindow().Show();
     }
 
+    protected override void OnExit(ExitEventArgs e)
+    {
+        // Safety net: never leave a VPN tunnel running in the background after the app quits.
+        try { Services.VpnProcessTracker.KillAll(); } catch { }
+        base.OnExit(e);
+    }
+
     private void OnUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         Services.Diag.Log("UNHANDLED: " + e.Exception);

@@ -80,6 +80,7 @@ public sealed class VpnService : IAsyncDisposable
         }
 
         _process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start OpenVPN.");
+        VpnProcessTracker.Register(_process);   // ensure it can't outlive the app as a hidden tunnel
 
         // Poll for the tunnel adapter to come up and acquire an address (up to 30s).
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -145,6 +146,7 @@ public sealed class VpnService : IAsyncDisposable
             }
         }
         catch { }
+        if (_process != null) VpnProcessTracker.Unregister(_process);
         _process?.Dispose();
         if (_authFile != null) { try { File.Delete(_authFile); } catch { } _authFile = null; }
         TunnelAddress = null;

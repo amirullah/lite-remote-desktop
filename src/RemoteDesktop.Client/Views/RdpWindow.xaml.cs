@@ -78,7 +78,10 @@ public partial class RdpWindow : Window
             _poll.Stop(); _hover.Stop(); _watchdog.Stop();
             try { _bar?.Close(); } catch { }
             try { if (_rdpReady && _rdp.IsConnected) _rdp.Ocx.Disconnect(); } catch { /* control tearing down */ }
-            _ = DisposeVpnAsync();   // tear the split tunnel down (SIGTERM) so it doesn't linger
+            // Tear the split tunnel down and WAIT briefly so it's actually gone before we return — a
+            // closed window must never leave a background VPN. Run off-thread to dodge a UI-thread await
+            // deadlock (the dispose does socket I/O only, no WPF), bounded so close never hangs.
+            try { System.Threading.Tasks.Task.Run(() => DisposeVpnAsync()).Wait(TimeSpan.FromMilliseconds(1500)); } catch { }
         };
     }
 
