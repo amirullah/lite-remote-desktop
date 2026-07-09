@@ -161,15 +161,6 @@ public partial class RdpWindow : Window
 
         TryAdvanced(ocx, port, PassBox.Password);
 
-        // Set per-monitor DPI on the control. This makes the remote UI the right physical size AND is
-        // the documented workaround that stops a post-connect resize from blanking the surface to black.
-        try
-        {
-            object dsf = DesktopScalePct(); _rdp.Extended.set_Property("DesktopScaleFactor", ref dsf);
-            object dvf = DeviceScale();     _rdp.Extended.set_Property("DeviceScaleFactor", ref dvf);
-        }
-        catch (Exception ex) { Services.Diag.Log("[rdp] ext-scale: " + ex.Message); }
-
         ocx.Connect();
         Status($"Menghubungkan RDP ke {host}:{port} …");
         ConnectBtn.IsEnabled = false;
@@ -370,7 +361,9 @@ public partial class RdpWindow : Window
         var (w, h) = FramePx();
         try
         {
-            _rdp.Client9.UpdateSessionDisplaySettings(w, h, w, h, 0, DesktopScalePct(), DeviceScale());
+            // Late-binding (all args are by-value uint → safe VARIANT marshaling). UpdateSessionDisplaySettings
+            // is on the control's default dispatch (IMsRdpClient8+), so no hand-declared interface is needed.
+            _rdp.Ocx.UpdateSessionDisplaySettings(w, h, w, h, 0u, DesktopScalePct(), DeviceScale());
         }
         catch (Exception ex) { Services.Diag.Log("[rdp] updatedisplay: " + ex.Message); }
     }

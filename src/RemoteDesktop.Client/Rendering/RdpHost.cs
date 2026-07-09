@@ -37,42 +37,13 @@ internal sealed class RdpHost : AxHost
         return ClsidV10;
     }
 
-    /// <summary>The underlying ActiveX object, driven via late binding (Server, UserName, Connect, …).</summary>
+    /// <summary>The underlying ActiveX object, driven via late binding (Server, UserName, Connect,
+    /// UpdateSessionDisplaySettings, …). We deliberately avoid hand-declared COM interfaces: an
+    /// IDispatch interface with a by-ref VARIANT arg corrupts memory (AccessViolation) when invoked.</summary>
     public dynamic Ocx => GetOcx();
-
-    /// <summary>Per-monitor DPI / scale settings (QueryInterface off the OCX — not on the default dispatch).</summary>
-    public IMsRdpExtendedSettings Extended => (IMsRdpExtendedSettings)GetOcx();
-
-    /// <summary>Dynamic-resolution control (UpdateSessionDisplaySettings) — MsRdpClient8/9+ only.</summary>
-    public IMsRdpClient9 Client9 => (IMsRdpClient9)GetOcx();
 
     public bool IsConnected
     {
         get { try { return (int)Ocx.Connected == 1; } catch { return false; } }
     }
-}
-
-/// <summary>
-/// IMsRdpExtendedSettings — a single parameterized property "Property" for extended settings such as
-/// "DesktopScaleFactor" / "DeviceScaleFactor". Declared as an IDispatch interface so the CLR invokes by
-/// name; setting a non-100 DeviceScaleFactor before Connect is also the documented workaround that stops
-/// the Win10/11 SmartSizing back-buffer from blanking to black when the control is resized after connect.
-/// </summary>
-[ComImport, Guid("302D8188-0052-4807-806A-362B628F9AC5"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
-internal interface IMsRdpExtendedSettings
-{
-    void set_Property([MarshalAs(UnmanagedType.BStr)] string name, [MarshalAs(UnmanagedType.Struct)] ref object value);
-    [return: MarshalAs(UnmanagedType.Struct)]
-    object get_Property([MarshalAs(UnmanagedType.BStr)] string name);
-}
-
-/// <summary>
-/// IMsRdpClient9 — we only need UpdateSessionDisplaySettings (present since IMsRdpClient8). Declared as an
-/// IDispatch interface, so only the method name matters, not the (large) vtable layout.
-/// </summary>
-[ComImport, Guid("28904001-04B6-436C-A55B-0AF1A0883DC9"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
-internal interface IMsRdpClient9
-{
-    void UpdateSessionDisplaySettings(uint desktopWidth, uint desktopHeight, uint physicalWidth,
-        uint physicalHeight, uint orientation, uint desktopScaleFactor, uint deviceScaleFactor);
 }
