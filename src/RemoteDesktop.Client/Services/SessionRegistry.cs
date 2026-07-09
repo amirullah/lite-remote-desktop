@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Interop;
 
 namespace RemoteDesktop.Client.Services;
 
@@ -85,5 +87,36 @@ public static class SessionRegistry
     private static void Raise()
     {
         try { Changed?.Invoke(); } catch { }
+    }
+
+    // ---- physical-pixel window placement (DPI-robust across mixed per-monitor scaling) ----
+
+    [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
+    private const uint SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010, SWP_FRAMECHANGED = 0x0020;
+
+    /// <summary>The window's current bounds in PHYSICAL device pixels (independent of DPI context).</summary>
+    public static (int x, int y, int w, int h) GetPhysicalBounds(Window w)
+    {
+        var hwnd = new WindowInteropHelper(w).EnsureHandle();
+        GetWindowRect(hwnd, out var r);
+        return (r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top);
+    }
+
+    /// <summary>Move/size a window using PHYSICAL pixels (Win32 SetWindowPos). This app is PerMonitorV2, so
+    /// WPF's Left/Width DIP math misplaces a window when it moves between monitors of different scale (e.g.
+    /// 100% ↔ 150%); positioning in device pixels is correct on every monitor.</summary>
+    public static void SetPhysicalBounds(Window w, int x, int y, int cw, int ch)
+    {
+        var hwnd = new WindowInteropHelper(w).EnsureHandle();
+        SetWindowPos(hwnd, IntPtr.Zero, x, y, cw, ch, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
+
+    /// <summary>Fill a monitor edge-to-edge in physical pixels.</summary>
+    public static void FillScreen(Window w, System.Windows.Forms.Screen s)
+    {
+        var b = s.Bounds;   // physical bounds under PerMonitorV2
+        SetPhysicalBounds(w, b.Left, b.Top, b.Width, b.Height);
     }
 }

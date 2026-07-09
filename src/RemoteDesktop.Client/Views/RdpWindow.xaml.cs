@@ -37,7 +37,7 @@ public partial class RdpWindow : Window, Services.ISessionWindow
     private WindowState _prevState = WindowState.Normal;
     private WindowStyle _prevStyle = WindowStyle.SingleBorderWindow;
     private ResizeMode _prevResize = ResizeMode.CanResize;
-    private Rect _prevBounds;   // windowed position/size, restored when leaving fullscreen
+    private (int x, int y, int w, int h) _prevPhys;   // windowed physical bounds, restored when leaving fullscreen
     private Window? _bar;   // auto-hide session toolbar shown on top-edge hover in fullscreen
     private System.Windows.Controls.StackPanel? _barSwitch;   // switch-to-other-session buttons inside _bar
     private readonly DispatcherTimer _hover = new() { Interval = TimeSpan.FromMilliseconds(120) };
@@ -378,6 +378,15 @@ public partial class RdpWindow : Window, Services.ISessionWindow
         return (raw, port);
     }
 
+    /// <summary>Secret-store key for RDP account creds — keyed by host AND port so same-host, different-port
+    /// targets (e.g. 10.28.76.92:13389 vs the default :3389) never share or overwrite each other's user +
+    /// password. (Load and save MUST use this same key; previously save kept the port but load stripped it.)</summary>
+    private static string RdpSecretKey(string rawHost)
+    {
+        var (h, p) = SplitHostPort(rawHost);
+        return ClientConfig.RdpKey(h, p);
+    }
+
     private void PickVpn_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new Microsoft.Win32.OpenFileDialog
@@ -430,7 +439,7 @@ public partial class RdpWindow : Window, Services.ISessionWindow
         if (host.Length == 0) return;
         try
         {
-            var combo = ClientConfig.Shared.GetSecret("rdp:" + SplitHostPort(host).host);
+            var combo = ClientConfig.Shared.GetSecret(RdpSecretKey(host));
             if (string.IsNullOrEmpty(combo)) return;
             var parts = combo.Split('\n');
             if (UserBox.Text.Trim().Length == 0 && parts.Length > 0) UserBox.Text = parts[0];
@@ -447,7 +456,7 @@ public partial class RdpWindow : Window, Services.ISessionWindow
             var cfg = ClientConfig.Shared;
             bool save = SaveCredsCheck?.IsChecked == true;
             if (profile.Length > 0) cfg.SetSecret("vpn:" + profile, save ? VpnPassBox.Password : null);
-            cfg.SetSecret("rdp:" + host, save ? (UserBox.Text.Trim() + "\n" + PassBox.Password) : null);
+            cfg.SetSecret(RdpSecretKey(host), save ? (UserBox.Text.Trim() + "\n" + PassBox.Password) : null);
             cfg.Save();
         }
         catch { }
@@ -580,14 +589,14 @@ public partial class RdpWindow : Window, Services.ISessionWindow
         if (on)
         {
             var target = onScreen ?? CurrentScreen;
-            if (_fullscreen) { PositionToScreen(target); return; }
+            if (_fullscreen) { SessionRegistry.FillScreen(this, target); return; }
             _prevState = WindowState; _prevStyle = WindowStyle; _prevResize = ResizeMode;
-            _prevBounds = new Rect(Left, Top, Width, Height);
+            _prevPhys = SessionRegistry.GetPhysicalBounds(this);
             TopBar.Visibility = Visibility.Collapsed;
             WindowState = WindowState.Normal;   // drop any maximized state before positioning manually
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;
-            PositionToScreen(target);
+            SessionRegistry.FillScreen(this, target);   // physical pixels — correct on any monitor/DPI
             _fullscreen = true;
             _hover.Start();   // reveal the overlay toolbar on top-edge hover (Esc/F11 are eaten by RDP)
             Status(Loc.T("Rdp.Status.FullscreenHint"));
@@ -599,18 +608,11 @@ public partial class RdpWindow : Window, Services.ISessionWindow
             TopBar.Visibility = Visibility.Visible;
             WindowStyle = _prevStyle;
             ResizeMode = _prevResize;
-            Left = _prevBounds.Left; Top = _prevBounds.Top;
-            Width = _prevBounds.Width; Height = _prevBounds.Height;
+            SessionRegistry.SetPhysicalBounds(this, _prevPhys.x, _prevPhys.y, _prevPhys.w, _prevPhys.h);
             WindowState = _prevState;
             _fullscreen = false;
             Status(_rdp.IsConnected ? Loc.T("Rdp.Status.Connected") : Loc.T("Rdp.StatusDefault"));
         }
-    }
-
-    private void PositionToScreen(System.Windows.Forms.Screen screen)
-    {
-        var b = screen.Bounds; var (dx, dy) = DpiScale();
-        Left = b.Left / dx; Top = b.Top / dy; Width = b.Width / dx; Height = b.Height / dy;
     }
 
     // ---- Auto-hide overlay toolbar (mstsc connection-bar style) ----

@@ -37,6 +37,10 @@ public sealed class ClientConfig
     /// Keys are like "vpn:&lt;profile-path&gt;" or "rdp:&lt;host&gt;". Never stored in plaintext.</summary>
     public Dictionary<string, string> Secrets { get; set; } = new();
 
+    /// <summary>Secret-store key for RDP account creds — host AND port, so same-host different-port targets
+    /// (e.g. 10.28.76.92:13389 vs :3389) keep SEPARATE user+password and never overwrite one another.</summary>
+    public static string RdpKey(string host, int port) => $"rdp:{host}:{(port == 0 ? 3389 : port)}";
+
     public string? GetSecret(string key) => Secrets.TryGetValue(key, out var v) ? SecretStore.Unprotect(v) : null;
 
     public void SetSecret(string key, string? plain)

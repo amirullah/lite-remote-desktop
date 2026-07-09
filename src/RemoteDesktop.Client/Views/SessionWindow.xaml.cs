@@ -53,7 +53,7 @@ public partial class SessionWindow : Window, ISessionWindow
     private WindowState _preFullscreenState;
     private WindowStyle _preFullscreenStyle = WindowStyle.SingleBorderWindow;
     private ResizeMode _preFullscreenResize = ResizeMode.CanResize;
-    private Rect _preFullscreenBounds;
+    private (int x, int y, int w, int h) _preFullscreenPhys;
 
     private static readonly int[] FpsChoices = { 0, 15, 24, 30, 45, 60, 75, 90, 120, 144 };
     private static readonly (int W, int H)[] ResChoices =
@@ -391,13 +391,13 @@ public partial class SessionWindow : Window, ISessionWindow
         if (on)
         {
             var target = onScreen ?? CurrentScreen;
-            if (_fullscreen) { PositionToScreen(target); return; }
+            if (_fullscreen) { SessionRegistry.FillScreen(this, target); return; }
             _preFullscreenState = WindowState; _preFullscreenStyle = WindowStyle; _preFullscreenResize = ResizeMode;
-            _preFullscreenBounds = new Rect(Left, Top, Width, Height);
+            _preFullscreenPhys = SessionRegistry.GetPhysicalBounds(this);
             WindowState = WindowState.Normal;
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;
-            PositionToScreen(target);
+            SessionRegistry.FillScreen(this, target);   // physical pixels — correct on any monitor/DPI
             _fullscreen = true;
         }
         else
@@ -405,19 +405,10 @@ public partial class SessionWindow : Window, ISessionWindow
             if (!_fullscreen) return;
             WindowStyle = _preFullscreenStyle;
             ResizeMode = _preFullscreenResize;
-            Left = _preFullscreenBounds.Left; Top = _preFullscreenBounds.Top;
-            Width = _preFullscreenBounds.Width; Height = _preFullscreenBounds.Height;
+            SessionRegistry.SetPhysicalBounds(this, _preFullscreenPhys.x, _preFullscreenPhys.y, _preFullscreenPhys.w, _preFullscreenPhys.h);
             WindowState = _preFullscreenState;
             _fullscreen = false;
         }
-    }
-
-    private void PositionToScreen(System.Windows.Forms.Screen screen)
-    {
-        var b = screen.Bounds;
-        var ct = PresentationSource.FromVisual(this)?.CompositionTarget;
-        double dx = ct?.TransformToDevice.M11 ?? 1.0, dy = ct?.TransformToDevice.M22 ?? 1.0;
-        Left = b.Left / dx; Top = b.Top / dy; Width = b.Width / dx; Height = b.Height / dy;
     }
 
     private async void Disconnect_Click(object sender, RoutedEventArgs e)

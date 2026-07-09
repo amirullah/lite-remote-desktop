@@ -34,7 +34,7 @@ public partial class SessionEditWindow : Window
         if (s.Kind == SessionKind.Rdp)
         {
             // UserLabel/PassLabel keep their XAML {loc:Loc Edit.Windows*Label} bindings (Windows user/password).
-            var combo = cfg.GetSecret("rdp:" + s.Host);
+            var combo = cfg.GetSecret(ClientConfig.RdpKey(s.Host, s.Port));
             if (!string.IsNullOrEmpty(combo))
             {
                 var p = combo.Split('\n');
@@ -111,7 +111,7 @@ public partial class SessionEditWindow : Window
 
         // account secret
         if (_s.Kind == SessionKind.Rdp)
-            _cfg.SetSecret("rdp:" + _s.Host, saveAccountPwd ? (UserBox.Text.Trim() + "\n" + PassBox.Password) : null);
+            _cfg.SetSecret(ClientConfig.RdpKey(_s.Host, _s.Port), saveAccountPwd ? (UserBox.Text.Trim() + "\n" + PassBox.Password) : null);
         else if (!isGoogle)
             _cfg.SetSecret("session:" + _s.Id, saveAccountPwd ? PassBox.Password : null);
 
