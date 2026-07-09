@@ -4,7 +4,9 @@
         Title="LiteRemote" Height="760" Width="1120"
         Icon="/Assets/literemote.ico"
         Background="{StaticResource AppBg}" WindowStartupLocation="CenterScreen"
-        FontFamily="Segoe UI Variable, Segoe UI" TextOptions.TextRenderingMode="ClearType">
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        FontFamily="Segoe UI Variable, Segoe UI"
+        TextOptions.TextRenderingMode="ClearType" TextOptions.TextFormattingMode="Display">
 
     <Grid>
         <!-- ================= CONNECT PANEL ================= -->
@@ -74,12 +76,17 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <!-- main card -->
-                    <Border Background="{StaticResource Panel}" CornerRadius="18" Padding="22"
-                            BorderBrush="{StaticResource Stroke}" BorderThickness="1">
+                    <!-- main card. The drop shadow lives on an EMPTY sibling border behind the content,
+                         NOT on the content border — an Effect renders its whole subtree through a bitmap,
+                         which turns ClearType off and blurs every label/input/button inside. -->
+                    <Grid>
+                    <Border CornerRadius="18" Background="{StaticResource Panel}">
                         <Border.Effect>
                             <DropShadowEffect Color="Black" BlurRadius="30" ShadowDepth="0" Opacity="0.35"/>
                         </Border.Effect>
+                    </Border>
+                    <Border Background="{StaticResource Panel}" CornerRadius="18" Padding="22"
+                            BorderBrush="{StaticResource Stroke}" BorderThickness="1">
                         <StackPanel>
 
                             <!-- connection type: pick first, the form below adapts -->
@@ -108,23 +115,8 @@
                                            Foreground="{StaticResource Muted}" FontSize="11.5" Margin="2,6,0,0"/>
                             </StackPanel>
 
-                            <!-- address mode -->
+                            <!-- address mode (host + port; saved sessions live in the Recent column) -->
                             <StackPanel x:Name="AddrModePanel" Margin="0,18,0,0">
-                                <!-- saved sessions: pick one to fill the fields; no retyping -->
-                                <Grid x:Name="SavedRow" Margin="0,0,0,14" Visibility="Collapsed">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0">
-                                        <TextBlock Text="SESI TERSIMPAN" Style="{StaticResource Label}"/>
-                                        <ComboBox x:Name="SavedBox" SelectionChanged="Saved_Changed"/>
-                                    </StackPanel>
-                                    <Button Grid.Column="1" x:Name="DeleteSavedBtn" Content="Hapus"
-                                            Style="{StaticResource Ghost}" VerticalAlignment="Bottom"
-                                            Margin="8,0,0,0" Padding="12,9" Click="DeleteSaved_Click"
-                                            ToolTip="Hapus sesi tersimpan yang dipilih"/>
-                                </Grid>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="3*"/>
@@ -158,6 +150,9 @@
                                 <StackPanel x:Name="PasswordArea" Margin="0,14,0,0">
                                     <TextBlock Text="HOST ACCESS PASSWORD" Style="{StaticResource Label}"/>
                                     <PasswordBox x:Name="PasswordBox"/>
+                                    <CheckBox x:Name="SavePasswordCheck" Margin="1,8,0,0"
+                                              Content="Ingat password (DPAPI — akun Windows ini) untuk sambung 1-klik"
+                                              ToolTip="Menyimpan password terenkripsi agar sesi ini bisa disambung ulang dari daftar Recent tanpa mengetik lagi."/>
                                     <TextBlock Foreground="{StaticResource Muted}" FontSize="11.5" Margin="2,6,0,0" TextWrapping="Wrap"
                                                Text="The password created on the remote computer: LiteRemote Host tray icon → “Set access password”."/>
                                 </StackPanel>
@@ -169,10 +164,19 @@
                                 </StackPanel>
                             </StackPanel>
 
-                            <!-- RDP hint (shown only when the Windows RDP type is picked) -->
-                            <TextBlock x:Name="RdpHint" Visibility="Collapsed" TextWrapping="Wrap"
-                                       Foreground="{StaticResource Muted}" FontSize="11.5" Margin="2,16,0,0"
-                                       Text="Login user &amp; password Windows dimasukkan di jendela RDP setelah terhubung. RDP juga bisa menembus layar login. Untuk lewat VPN, atur di jendela RDP."/>
+                            <!-- RDP credentials (shown only for the Windows RDP type) — fill here once and
+                                 connect directly; no second login form in the RDP window. -->
+                            <StackPanel x:Name="RdpCredPanel" Visibility="Collapsed" Margin="0,4,0,0">
+                                <TextBlock Text="WINDOWS USERNAME" Style="{StaticResource Label}" Margin="2,14,0,5"/>
+                                <TextBox x:Name="RdpUserBox"/>
+                                <TextBlock Text="WINDOWS PASSWORD" Style="{StaticResource Label}" Margin="2,12,0,5"/>
+                                <PasswordBox x:Name="RdpPassBox"/>
+                                <CheckBox x:Name="RdpSaveCheck" Margin="1,8,0,0"
+                                          Content="Ingat user &amp; password (DPAPI) untuk sambung 1-klik"
+                                          ToolTip="Menyimpan kredensial Windows terenkripsi agar RDP ini bisa disambung ulang dari Recent tanpa mengetik lagi."/>
+                                <TextBlock Foreground="{StaticResource Muted}" FontSize="11.5" Margin="2,6,0,0" TextWrapping="Wrap"
+                                           Text="Login akun Windows PC tujuan. RDP bisa menembus layar login. Kosongkan password untuk memasukkannya di layar RDP. VPN (bila perlu) diatur di Advanced."/>
+                            </StackPanel>
 
                             <!-- connect (label adapts to the chosen type) -->
                             <Button x:Name="ConnectButton" Content="Connect" FontSize="15"
@@ -181,6 +185,7 @@
                                        TextWrapping="Wrap" Margin="2,10,0,0" MinHeight="16"/>
                         </StackPanel>
                     </Border>
+                    </Grid>
 
                     <!-- advanced -->
                     <Expander x:Name="AdvancedExpander" Header="Advanced — performance, display, VPN &amp; relay"
@@ -193,14 +198,8 @@
                                 <TextBlock Text="e.g. relay.example.com:7500 — same server the host registers with."
                                            Foreground="{StaticResource Muted}" FontSize="11" Margin="2,5,0,0"/>
 
-                                <!-- FPS & resolution live in the session toolbar only (applied live),
-                                     so there is exactly one place to control them. -->
-                                <TextBlock Text="IMAGE QUALITY" Style="{StaticResource Label}" Margin="2,16,0,5"/>
-                                <StackPanel Orientation="Horizontal">
-                                    <Slider x:Name="QualitySlider" Width="260" Minimum="20" Maximum="95" Value="75"
-                                            VerticalAlignment="Center" ValueChanged="Quality_Changed"/>
-                                    <TextBlock x:Name="QualityLabel" Text="75" VerticalAlignment="Center" Margin="12,0,0,0"/>
-                                </StackPanel>
+                                <!-- FPS, resolution & quality live in the session toolbar only (applied
+                                     live), so there is exactly one place to control them. -->
 
                                 <TextBlock Text="NETWORK PATH" Style="{StaticResource Label}" Margin="2,16,0,5"/>
                                 <ComboBox x:Name="NetworkModeBox" SelectedIndex="0" SelectionChanged="NetworkMode_Changed">

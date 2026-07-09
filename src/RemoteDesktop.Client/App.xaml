@@ -28,7 +28,9 @@
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource Fg}"/>
             <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
-            <Setter Property="TextOptions.TextFormattingMode" Value="Ideal"/>
+            <!-- Display snaps glyph advances to whole device pixels — crisp small UI text.
+                 Ideal (the old value) uses fractional print metrics that look soft at 11-14px. -->
+            <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
         </Style>
 
         <!-- ============ primary button (high-contrast, crisp edge + glow) ============ -->

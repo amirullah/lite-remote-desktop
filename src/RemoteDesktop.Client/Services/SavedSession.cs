@@ -53,10 +53,12 @@ public sealed record SavedSession
     public bool Pinned { get; init; }
     public DateTime LastUsedUtc { get; init; } = DateTime.UtcNow;
 
-    /// <summary>Dedupe key — two sessions with the same identity collapse to the newest.</summary>
+    /// <summary>Dedupe key — two sessions with the same identity collapse to the newest. Auth is part of
+    /// the identity so a Password session and a Google session to the same host stay separate entries
+    /// (and don't silently drop each other's remembered password).</summary>
     public string IdentityKey => Kind == SessionKind.LiteRemoteId
-        ? $"ID|{RelayId}"
-        : $"{(byte)Kind}|{Host.Trim().ToLowerInvariant()}|{Port}";
+        ? $"ID|{RelayId}|{(byte)Auth}"
+        : $"{(byte)Kind}|{Host.Trim().ToLowerInvariant()}|{Port}|{(byte)Auth}";
 
     public string DisplayName => !string.IsNullOrWhiteSpace(Label) ? Label
         : Kind == SessionKind.LiteRemoteId ? RelayId

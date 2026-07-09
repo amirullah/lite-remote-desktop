@@ -1,8 +1,8 @@
+using System;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
-using RemoteDesktop.Client.Rendering;
 using RemoteDesktop.Client.Services;
 using RemoteDesktop.Shared;
 using RemoteDesktop.Shared.Models;
@@ -11,14 +11,14 @@ using RemoteDesktop.Shared.Security;
 namespace RemoteDesktop.Client.Views;
 
 /// <summary>
-/// The connect hub: pick a connection (LiteRemote by address/ID, or Windows RDP), optionally through a
-/// VPN, and launch it into its OWN window (<see cref="SessionWindow"/> for the LiteRemote protocol,
-/// <see cref="RdpWindow"/> for RDP). Several sessions can run at once; this window stays a launcher and
-/// keeps the Recent &amp; Saved column for one-click reconnect.
+/// The connect hub: pick a connection type (LiteRemote by address/ID, or Windows RDP), optionally
+/// through a VPN, and launch it into its OWN window (<see cref="SessionWindow"/> for the LiteRemote
+/// protocol, <see cref="RdpWindow"/> for RDP). Several sessions run at once; this window stays a
+/// launcher and keeps the Recent &amp; Saved column for one-click reconnect.
 /// </summary>
 public partial class MainWindow : Window
 {
-    private ClientConfig _config = ClientConfig.Load();
+    private readonly ClientConfig _config = ClientConfig.Shared;
     private readonly PinStore _pins = new(AppPaths.PinStore);
 
     public MainWindow()
@@ -26,45 +26,21 @@ public partial class MainWindow : Window
         InitializeComponent();
         RelayBox.Text = _config.RelayAddress;
         if (!string.IsNullOrEmpty(_config.GoogleClientId)) GoogleClientIdBox.Text = _config.GoogleClientId;
-        // Pre-fill the address from the last successful connection so reconnecting is one click.
-        if (_config.Recent.Count > 0 && !string.IsNullOrWhiteSpace(_config.Recent[0].Host))
-        {
-            HostBox.Text = _config.Recent[0].Host;
-            PortBox.Text = _config.Recent[0].Port.ToString();
-        }
-        PopulateSaved();
+        // Pre-fill the address from the most-recently-used saved session so reconnecting is one click.
+        var last = _config.Ordered.FirstOrDefault(x => x.Kind != SessionKind.LiteRemoteId && !string.IsNullOrWhiteSpace(x.Host));
+        if (last != null) { HostBox.Text = last.Host; PortBox.Text = last.Port.ToString(); }
         RefreshRecent();
         Closing += (_, _) => Cleanup();
     }
 
-    private bool _suppressSaved;
-
-    /// <summary>The old saved-sessions combo is superseded by the Recent &amp; Saved column on the right.</summary>
-    private void PopulateSaved()
-    {
-        _suppressSaved = true;
-        SavedBox.Items.Clear();
-        SavedRow.Visibility = Visibility.Collapsed;
-        _suppressSaved = false;
-    }
-
-    private void Saved_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (_suppressSaved) return;
-        int i = SavedBox.SelectedIndex;
-        if (i < 0 || i >= _config.Recent.Count) return;
-        HostBox.Text = _config.Recent[i].Host;
-        PortBox.Text = _config.Recent[i].Port.ToString();
-    }
-
     // ---------------- Recent / saved sessions (right column) ----------------
 
-    /// <summary>Fill the right-column list from the unified store (pinned first, then most-recent).</summary>
+    /// <summary>Re-bind the right-column list from the shared store (pinned first, then most-recent).
+    /// The store is process-wide, so sessions saved by session/RDP windows are already here.</summary>
     private void RefreshRecent()
     {
         try
         {
-            _config = ClientConfig.Load();   // reload so sessions saved by session/RDP windows show up too
             RecentList.ItemsSource = _config.Ordered.ToList();
             RecentEmpty.Visibility = _config.Sessions.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
@@ -81,7 +57,10 @@ public partial class MainWindow : Window
         if ((sender as FrameworkElement)?.Tag is SavedSession s) { _config.DeleteSession(s.Id); RefreshRecent(); }
     }
 
-    /// <summary>One-click reconnect: prefill the right fields for the session's type and connect.</summary>
+    /// <summary>
+    /// One-click reconnect from the Recent list. RDP and any session with a remembered password connect
+    /// straight away; a protocol session without a saved password prefills the form and asks for it.
+    /// </summary>
     private void ConnectSaved(SavedSession s)
     {
         _config.TouchSession(s.Id);
@@ -90,34 +69,92 @@ public partial class MainWindow : Window
             case SessionKind.Rdp:
                 OpenRdp(s);
                 break;
+
             case SessionKind.LiteRemoteId:
+            {
                 ModeIdRadio.IsChecked = true;
                 IdBox.Text = s.RelayId;
-                Connect_Click(this, new RoutedEventArgs());
+                if (RelayBox.Text.Trim().Length == 0) RelayBox.Text = _config.RelayAddress; // ID needs a relay
+                var cred = BuildSavedCredential(s);
+                if (cred != null)
+                {
+                    LaunchSession(new SessionRequest
+                    {
+                        IdMode = true, Relay = RelayBox.Text.Trim(), Id = s.RelayId,
+                        Credential = cred, Settings = BuildInitialSettings(),
+                        Descriptor = s with { LastUsedUtc = DateTime.UtcNow },
+                    });
+                }
+                else FallBackToForm(s);
                 break;
+            }
+
             default: // LiteRemoteIp
+            {
                 ModeAddrRadio.IsChecked = true;
                 HostBox.Text = s.Host;
                 PortBox.Text = s.Port.ToString();
-                // Restore the saved VPN choice so a VPN-backed session reconnects the same way.
+
+                string? vpnPath = null;
                 var vp = _config.GetVpn(s.VpnProfileId);
                 if (s.UseVpn && vp != null && System.IO.File.Exists(vp.OvpnPath))
                 {
                     NetworkModeBox.SelectedIndex = 1;
                     VpnProfileBox.Text = vp.OvpnPath;
+                    vpnPath = vp.OvpnPath;
                 }
                 else NetworkModeBox.SelectedIndex = 0;
-                Connect_Click(this, new RoutedEventArgs());
+
+                var cred = BuildSavedCredential(s);
+                if (cred != null)
+                {
+                    LaunchSession(new SessionRequest
+                    {
+                        IdMode = false, Host = s.Host, Port = s.Port,
+                        Credential = cred, Settings = BuildInitialSettings(),
+                        VpnProfilePath = vpnPath,
+                        Descriptor = s with { LastUsedUtc = DateTime.UtcNow },
+                    });
+                }
+                else FallBackToForm(s);
                 break;
+            }
         }
-        RefreshRecent();
+        // No RefreshRecent() here: each launched window refreshes the list on Closed, and refreshing now
+        // would swap _config out from under an in-flight Google OAuth on the fall-back path.
+    }
+
+    /// <summary>No remembered password: prefill the form and let the user finish (Google reconnects via browser).</summary>
+    private void FallBackToForm(SavedSession s)
+    {
+        if (s.Auth == ProtocolAuth.Google)
+        {
+            AuthGoogleRadio.IsChecked = true;
+            Connect_Click(this, new RoutedEventArgs());   // opens the browser for OAuth, then launches
+            return;
+        }
+        AuthPasswordRadio.IsChecked = true;
+        SavePasswordCheck.IsChecked = s.SavePassword;     // keep the user's remember choice
+        PasswordBox.Focus();
+        SetStatus($"Masukkan password untuk {s.DisplayName}, lalu tekan Connect.");
+    }
+
+    /// <summary>Build a credential for a saved session WITHOUT the form, from the DPAPI-remembered password.</summary>
+    private Credential? BuildSavedCredential(SavedSession s)
+    {
+        if (s.SavePassword && s.Auth != ProtocolAuth.Google)
+        {
+            var pwd = _config.GetSecret("session:" + s.Id);
+            if (!string.IsNullOrEmpty(pwd)) return new PasswordCredential(pwd);
+        }
+        return null;
     }
 
     /// <summary>
     /// Open a real Windows RDP session embedded inside LiteRemote (the mstscax.dll ActiveX control),
     /// not by launching the external mstsc app — its own window, so it can run alongside other sessions.
-    /// RDP authenticates with the Windows account and can drive the login/lock screen — the one thing
-    /// LiteRemote's own path cannot.
+    /// From the main form (s == null) the Windows user/password entered there connect directly, with no
+    /// second login form. From Recent (s != null) it reconnects the saved target.
     /// </summary>
     private void OpenRdp(SavedSession? s = null)
     {
@@ -139,9 +176,23 @@ public partial class MainWindow : Window
             if (host.Length == 0) { SetStatus("Masukkan alamat host untuk RDP."); return; }
 
             var win = new RdpWindow(host);
-            if (s != null) win.ApplySaved(s, _config);
+            if (s != null)
+            {
+                win.ApplySaved(s, _config);
+            }
+            else
+            {
+                // Fill once, connect directly: hand the Windows credentials (and an optional VPN profile
+                // from Advanced) straight to the RDP window, which connects without showing its own form.
+                string? vpnPath = null;
+                if (NetworkModeBox.SelectedIndex == 1 &&
+                    !string.IsNullOrWhiteSpace(VpnProfileBox.Text) && System.IO.File.Exists(VpnProfileBox.Text))
+                    vpnPath = VpnProfileBox.Text;
+                win.ApplyDirect(RdpUserBox.Text, RdpPassBox.Password, RdpSaveCheck.IsChecked == true, vpnPath);
+            }
             win.Closed += (_, _) => RefreshRecent();
             win.Show();
+            SetStatus("Sesi RDP dibuka di jendela baru.");
         }
         catch (Exception ex)
         {
@@ -150,25 +201,16 @@ public partial class MainWindow : Window
         }
     }
 
-    private void DeleteSaved_Click(object sender, RoutedEventArgs e)
-    {
-        int i = SavedBox.SelectedIndex;
-        if (i < 0 || i >= _config.Recent.Count) return;
-        _config.Recent.RemoveAt(i);
-        _config.Save();
-        PopulateSaved();
-    }
-
     private void Mode_Changed(object sender, RoutedEventArgs e)
     {
-        if (IdModePanel is null || AddrModePanel is null || LoginSection is null) return;
+        if (IdModePanel is null || AddrModePanel is null || LoginSection is null || RdpCredPanel is null) return;
         bool idMode = ModeIdRadio.IsChecked == true;
         bool rdpMode = ModeRdpRadio.IsChecked == true;
 
         IdModePanel.Visibility = idMode ? Visibility.Visible : Visibility.Collapsed;
         AddrModePanel.Visibility = idMode ? Visibility.Collapsed : Visibility.Visible; // address for LiteRemote-IP + RDP
-        LoginSection.Visibility = rdpMode ? Visibility.Collapsed : Visibility.Visible;  // RDP logs in inside its window
-        RdpHint.Visibility = rdpMode ? Visibility.Visible : Visibility.Collapsed;
+        LoginSection.Visibility = rdpMode ? Visibility.Collapsed : Visibility.Visible;  // protocol sign-in
+        RdpCredPanel.Visibility = rdpMode ? Visibility.Visible : Visibility.Collapsed;  // Windows RDP sign-in
         ConnectButton.Content = rdpMode ? "Buka Windows RDP" : "Connect";
 
         // Nudge the port to the right service when the type changes (only if still on the other default).
@@ -187,6 +229,8 @@ public partial class MainWindow : Window
         try
         {
             bool idMode = ModeIdRadio.IsChecked == true;
+            bool savePwd = AuthPasswordRadio.IsChecked == true && SavePasswordCheck.IsChecked == true;
+            var auth = AuthGoogleRadio.IsChecked == true ? ProtocolAuth.Google : ProtocolAuth.Password;
 
             Credential? credential = await BuildCredentialAsync();
             if (credential is null) { SetStatus("Pilih metode login yang valid (isi password atau client id Google)."); return; }
@@ -207,7 +251,10 @@ public partial class MainWindow : Window
                 _config.RelayAddress = relay; _config.Save();
                 req.Relay = relay;
                 req.Id = id;
-                req.Descriptor = new SavedSession { Kind = SessionKind.LiteRemoteId, RelayId = id };
+                req.Descriptor = StableId(new SavedSession
+                {
+                    Kind = SessionKind.LiteRemoteId, RelayId = id, Auth = auth, SavePassword = savePwd,
+                });
             }
             else
             {
@@ -229,17 +276,14 @@ public partial class MainWindow : Window
                     _config.LastVpnProfile = VpnProfileBox.Text; _config.Save();
                 }
 
-                req.Descriptor = new SavedSession
+                req.Descriptor = StableId(new SavedSession
                 {
                     Kind = SessionKind.LiteRemoteIp, Host = host, Port = port,
-                    UseVpn = vpnId != null, VpnProfileId = vpnId,
-                };
+                    UseVpn = vpnId != null, VpnProfileId = vpnId, Auth = auth, SavePassword = savePwd,
+                });
             }
 
-            var win = new SessionWindow(req, _pins);
-            win.Closed += (_, _) => RefreshRecent();
-            win.Show();
-            SetStatus("Sesi dibuka di jendela baru — Anda bisa membuka koneksi lain sekaligus.");
+            LaunchSession(req);
         }
         catch (Exception ex)
         {
@@ -249,6 +293,24 @@ public partial class MainWindow : Window
         {
             ConnectButton.IsEnabled = true;
         }
+    }
+
+    /// <summary>
+    /// Reuse the Id of an existing saved session with the same identity, so the remembered-password
+    /// secret (<c>session:&lt;id&gt;</c>) stays valid across reconnects and we never orphan a ciphertext.
+    /// </summary>
+    private SavedSession StableId(SavedSession s)
+    {
+        var existing = _config.Sessions.FirstOrDefault(x => x.IdentityKey == s.IdentityKey);
+        return existing != null ? s with { Id = existing.Id } : s;
+    }
+
+    private void LaunchSession(SessionRequest req)
+    {
+        var win = new SessionWindow(req, _pins);
+        win.Closed += (_, _) => RefreshRecent();
+        win.Show();
+        SetStatus("Sesi dibuka di jendela baru — Anda bisa membuka koneksi lain sekaligus.");
     }
 
     /// <summary>Initial settings for a new session; the session toolbar tunes fps/res/codec/quality live.</summary>
@@ -307,11 +369,6 @@ public partial class MainWindow : Window
     {
         var dlg = new OpenFileDialog { Filter = "OpenVPN profile (*.ovpn)|*.ovpn|All files|*.*" };
         if (dlg.ShowDialog() == true) VpnProfileBox.Text = dlg.FileName;
-    }
-
-    private void Quality_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (QualityLabel != null) QualityLabel.Text = ((int)e.NewValue).ToString();
     }
 
     private void SetStatus(string text) => StatusText.Text = text;

@@ -47,6 +47,10 @@ public sealed class ClientConfig
     /// <summary>Insert-or-update by identity (Kind|Host|Port or ID|RelayId); newest moves to the top.</summary>
     public void UpsertSession(SavedSession s, bool touch = true)
     {
+        // A same-identity row with a DIFFERENT Id would leave its session:<id> secret orphaned (unreachable
+        // by DeleteSession/ClearSessionPassword). Drop those secrets as we replace the row.
+        foreach (var stale in Sessions.Where(x => x.Id != s.Id && x.IdentityKey == s.IdentityKey).ToList())
+            Secrets.Remove("session:" + stale.Id);
         Sessions.RemoveAll(x => x.Id == s.Id || x.IdentityKey == s.IdentityKey);
         Sessions.Insert(0, touch ? s with { LastUsedUtc = DateTime.UtcNow } : s);
         // cap the unpinned recents so the list can't grow forever
@@ -133,15 +137,16 @@ public sealed class ClientConfig
         Save();
     }
 
-    public void Remember(SavedConnection conn)
-    {
-        Recent.RemoveAll(c => c.Host == conn.Host && c.Port == conn.Port);
-        Recent.Insert(0, conn);
-        if (Recent.Count > 10) Recent.RemoveRange(10, Recent.Count - 10);
-        Save();
-    }
-
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
+
+    private static ClientConfig? _shared;
+
+    /// <summary>
+    /// Process-wide config instance shared by every window. WPF is single-threaded, so all mutations
+    /// happen on the UI thread against ONE in-memory object — this is what keeps concurrent sessions
+    /// from each persisting a stale full-file snapshot and clobbering one another's saved rows/secrets.
+    /// </summary>
+    public static ClientConfig Shared => _shared ??= Load();
 
     public static ClientConfig Load()
     {

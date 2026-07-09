@@ -36,7 +36,7 @@ public partial class SessionWindow : Window
 {
     private readonly SessionRequest _request;
     private readonly PinStore _pins;
-    private ClientConfig _config = ClientConfig.Load();
+    private readonly ClientConfig _config = ClientConfig.Shared;
 
     private RemoteConnection? _connection;
     private VpnService? _vpn;
@@ -109,11 +109,26 @@ public partial class SessionWindow : Window
 
             if (ok)
             {
-                try { _config.UpsertSession(_request.Descriptor); } catch { }
+                try
+                {
+                    var d = _request.Descriptor;
+                    // Persist (or clear) the remembered protocol password under the stable session Id,
+                    // so Recent can reconnect one-click. DPAPI-encrypted for this Windows user only.
+                    if (d.SavePassword && _request.Credential is PasswordCredential pc)
+                        _config.SetSecret("session:" + d.Id, pc.Password);
+                    else
+                        _config.SetSecret("session:" + d.Id, null);
+                    _config.UpsertSession(d);   // saves _config, including the secret set above
+                }
+                catch { }
                 EnterSession();
             }
             else
             {
+                // Honor "don't remember" even on a failed connect, so a stale saved password can't keep
+                // silently auto-reconnecting with the wrong credential.
+                if (!_request.Descriptor.SavePassword)
+                    try { _config.SetSecret("session:" + _request.Descriptor.Id, null); _config.Save(); } catch { }
                 ShowDisconnected(_lastError ?? "Gagal terhubung.");
                 await DisconnectAsync();
             }

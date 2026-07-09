@@ -28,7 +28,11 @@ public partial class RdpWindow : Window
     private readonly System.Windows.Forms.Panel _panel = new() { Dock = System.Windows.Forms.DockStyle.Fill };
     private volatile bool _sessionUp;   // true only after the RDP session is fully logged in (safe to resize)
     private bool _fullscreen;
-    private bool _autoConnect;   // set by ApplySaved → connect automatically once the control is ready
+    private bool _autoConnect;   // set by ApplySaved/ApplyDirect → connect automatically once ready
+    private bool _directMode;    // one-form connect: the connect bar is hidden (creds came from the hub)
+    // If a hidden-bar auto-connect doesn't come up in time (bad host/creds), reveal the bar so the user
+    // isn't stuck staring at a black window with no controls.
+    private readonly DispatcherTimer _watchdog = new() { Interval = TimeSpan.FromSeconds(12) };
     private WindowState _prevState = WindowState.Normal;
     private WindowStyle _prevStyle = WindowStyle.SingleBorderWindow;
     private ResizeMode _prevResize = ResizeMode.CanResize;
@@ -49,9 +53,20 @@ public partial class RdpWindow : Window
         // keeping the window visible.
         HostBox.Text = host ?? string.Empty;
         UserBox.Text = user ?? string.Empty;
-        try { VpnBox.Text = Services.ClientConfig.Load().LastVpnProfile ?? string.Empty; } catch { }
+        // NOTE: VpnBox is intentionally NOT prefilled from LastVpnProfile. A non-empty VpnBox makes
+        // Connect_Click treat the target as VPN-only and hard-stop for VPN creds — which silently broke
+        // plain (non-VPN) reconnects. VPN is now set explicitly only when the user chooses it.
         LoadSavedRdpCreds();   // prefill remembered RDP user/password for this host, if any
 
+        _watchdog.Tick += (_, _) =>
+        {
+            // Read the raw ActiveX state: 1 = connected, 2 = still negotiating, 0 = idle/failed.
+            int st = 0; try { st = (int)_rdp.Ocx.Connected; } catch { }
+            if (st == 1) { _watchdog.Stop(); return; }   // came up — nothing to do
+            if (st == 2) return;                          // still connecting — keep waiting (timer repeats)
+            _watchdog.Stop();                             // genuinely failed/idle — reveal the form
+            RevealForm("Gagal menyambung RDP — periksa host / user / password (atau aktifkan RDP di PC tujuan), lalu tekan Hubungkan.");
+        };
         _poll.Tick += (_, _) => UpdateConnectionState();
         _resize.Tick += (_, _) => { _resize.Stop(); ApplyRemoteSize(); };
         _hover.Tick += Hover_Tick;
@@ -59,7 +74,7 @@ public partial class RdpWindow : Window
         Loaded += OnLoaded;
         Closed += (_, _) =>
         {
-            _poll.Stop(); _hover.Stop();
+            _poll.Stop(); _hover.Stop(); _watchdog.Stop();
             try { _bar?.Close(); } catch { }
             try { if (_rdpReady && _rdp.IsConnected) _rdp.Ocx.Disconnect(); } catch { /* control tearing down */ }
             _ = DisposeVpnAsync();   // tear the split tunnel down (SIGTERM) so it doesn't linger
@@ -89,6 +104,7 @@ public partial class RdpWindow : Window
             // The control could not load (e.g. mstscax not registered on this machine). Keep the
             // window on screen with a clear message instead of a silent no-op / generic crash dialog.
             Services.Diag.Log("RdpWindow Loaded: ActiveX FAILED: " + ex);
+            ConnectFields.Visibility = Visibility.Visible;   // a hands-off connect may have hidden it
             ConnectBtn.IsEnabled = false;
             DisconnectBtn.IsEnabled = false;
             Status("Kontrol Windows RDP tidak tersedia di PC ini: " + ex.Message);
@@ -98,8 +114,11 @@ public partial class RdpWindow : Window
         _poll.Start();
         if (string.IsNullOrWhiteSpace(UserBox.Text)) UserBox.Focus(); else PassBox.Focus();
 
-        if (_autoConnect)   // one-click reconnect from a saved session
+        if (_autoConnect)   // one-click reconnect / one-form direct connect
+        {
+            if (_directMode) _watchdog.Start();   // reveal the bar if this doesn't come up
             Dispatcher.BeginInvoke(new Action(() => Connect_Click(this, new RoutedEventArgs())), DispatcherPriority.ApplicationIdle);
+        }
     }
 
     /// <summary>Prefill this window from a saved RDP session and auto-connect once ready (one-click reconnect).</summary>
@@ -107,14 +126,81 @@ public partial class RdpWindow : Window
     {
         HostBox.Text = s.Port is 0 or 3389 ? s.Host : $"{s.Host}:{s.Port}";
         if (!string.IsNullOrWhiteSpace(s.Username)) UserBox.Text = s.Username;
+        bool hasVpn = false;
         if (s.UseVpn && cfg.GetVpn(s.VpnProfileId) is { } v)
         {
-            VpnExpander.IsExpanded = true;
             VpnBox.Text = v.OvpnPath;
             if (!string.IsNullOrWhiteSpace(v.Username) && VpnUserBox.Text.Trim().Length == 0) VpnUserBox.Text = v.Username;
+            hasVpn = true;
         }
         LoadSavedRdpCreds();   // fill user/password from the saved secret for this host
+
+        // Only go hands-off when we actually have a password. Without one, auto-connecting would just
+        // blank-fail behind a hidden bar; show the prefilled form and let the user type it instead.
+        if (PassBox.Password.Length > 0)
+        {
+            BeginDirect(hasVpn);
+        }
+        else
+        {
+            if (hasVpn) VpnExpander.IsExpanded = true;
+            PassBox.Focus();
+            Status("Masukkan password Windows lalu tekan Hubungkan.");
+        }
+    }
+
+    /// <summary>
+    /// Connect straight from the main connect form: fill the Windows credentials (and optional VPN
+    /// profile) the hub collected, then connect without showing this window's own login form.
+    /// </summary>
+    public void ApplyDirect(string? user, string? password, bool remember, string? vpnProfilePath = null)
+    {
+        if (!string.IsNullOrWhiteSpace(user)) UserBox.Text = user.Trim();
+        if (password != null) PassBox.Password = password;
+        if (SaveCredsCheck != null) SaveCredsCheck.IsChecked = remember;
+
+        bool hasVpn = !string.IsNullOrWhiteSpace(vpnProfilePath);
+        if (hasVpn)
+        {
+            VpnBox.Text = vpnProfilePath!.Trim();
+            LoadSavedVpnPass(vpnProfilePath!.Trim());   // reuse a remembered VPN password if there is one
+        }
+        BeginDirect(hasVpn);
+    }
+
+    /// <summary>
+    /// Arrange a hands-off connect. Without VPN the connect bar is hidden and we auto-connect. With VPN
+    /// the bar stays visible &amp; expanded (the tunnel may still need its user/password), but we still
+    /// auto-fire — if VPN creds are missing, Connect_Click reports it with the bar in view.
+    /// </summary>
+    private void BeginDirect(bool hasVpn)
+    {
         _autoConnect = true;
+        if (hasVpn)
+        {
+            VpnExpander.IsExpanded = true;
+        }
+        else
+        {
+            VpnBox.Text = string.Empty;   // guarantee no phantom-VPN gate diverts a plain RDP connect
+            _directMode = true;
+            // Hide only the connect inputs — Disconnect/Fullscreen stay in the always-visible action strip.
+            ConnectFields.Visibility = Visibility.Collapsed;
+            VpnExpander.Visibility = Visibility.Collapsed;
+            Status("Menghubungkan RDP…");
+        }
+    }
+
+    /// <summary>Bring the connect inputs back (e.g. a hands-off connect failed) so the user can fix things.</summary>
+    private void RevealForm(string msg)
+    {
+        _directMode = false;
+        _watchdog.Stop();
+        ConnectFields.Visibility = Visibility.Visible;
+        VpnExpander.Visibility = Visibility.Visible;
+        ConnectBtn.IsEnabled = true;
+        DisconnectBtn.IsEnabled = false;
+        Status(msg);
     }
 
     /// <summary>Remember this RDP target (and any VPN it went through) so it appears in the Recent list
@@ -123,7 +209,7 @@ public partial class RdpWindow : Window
     {
         try
         {
-            var cfg = ClientConfig.Load();
+            var cfg = ClientConfig.Shared;
             string? vpnId = null;
             var vpnPath = VpnBox.Text.Trim();
             if (vpnPath.Length > 0)
@@ -297,7 +383,7 @@ public partial class RdpWindow : Window
         if (VpnPassBox is null || profile.Length == 0 || VpnPassBox.Password.Length > 0) return;
         try
         {
-            var pass = ClientConfig.Load().GetSecret("vpn:" + profile);
+            var pass = ClientConfig.Shared.GetSecret("vpn:" + profile);
             if (!string.IsNullOrEmpty(pass)) { VpnPassBox.Password = pass; if (SaveCredsCheck != null) SaveCredsCheck.IsChecked = true; }
         }
         catch { }
@@ -310,7 +396,7 @@ public partial class RdpWindow : Window
         if (host.Length == 0) return;
         try
         {
-            var combo = ClientConfig.Load().GetSecret("rdp:" + SplitHostPort(host).host);
+            var combo = ClientConfig.Shared.GetSecret("rdp:" + SplitHostPort(host).host);
             if (string.IsNullOrEmpty(combo)) return;
             var parts = combo.Split('\n');
             if (UserBox.Text.Trim().Length == 0 && parts.Length > 0) UserBox.Text = parts[0];
@@ -324,7 +410,7 @@ public partial class RdpWindow : Window
     {
         try
         {
-            var cfg = ClientConfig.Load();
+            var cfg = ClientConfig.Shared;
             bool save = SaveCredsCheck?.IsChecked == true;
             if (profile.Length > 0) cfg.SetSecret("vpn:" + profile, save ? VpnPassBox.Password : null);
             cfg.SetSecret("rdp:" + host, save ? (UserBox.Text.Trim() + "\n" + PassBox.Password) : null);
@@ -335,7 +421,7 @@ public partial class RdpWindow : Window
 
     private static void RememberVpn(string path)
     {
-        try { var cfg = Services.ClientConfig.Load(); cfg.LastVpnProfile = path; cfg.Save(); } catch { }
+        try { var cfg = Services.ClientConfig.Shared; cfg.LastVpnProfile = path; cfg.Save(); } catch { }
     }
 
     private async Task DisposeVpnAsync()
@@ -557,6 +643,8 @@ public partial class RdpWindow : Window
         _wasConnected = connected;
         if (connected)
         {
+            _watchdog.Stop();       // it came up — cancel the reveal-the-bar fallback
+            _directMode = false;
             Status("Terhubung.");
             ConnectBtn.IsEnabled = false;
             DisconnectBtn.IsEnabled = true;
@@ -568,6 +656,8 @@ public partial class RdpWindow : Window
             Status("Terputus. Isi kredensial lalu tekan Hubungkan.");
             ConnectBtn.IsEnabled = true;
             DisconnectBtn.IsEnabled = false;
+            // A session that came up then dropped: bring the connect inputs back so the user can reconnect.
+            if (!_fullscreen) { ConnectFields.Visibility = Visibility.Visible; VpnExpander.Visibility = Visibility.Visible; }
         }
     }
 
