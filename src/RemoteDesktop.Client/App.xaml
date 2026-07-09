@@ -87,9 +87,10 @@
             <Setter Property="Background" Value="{DynamicResource Bad}"/>
         </Style>
 
-        <!-- ghost / secondary button — stronger border + clear hover -->
+        <!-- secondary button — FILLED with a muted surface + WHITE text (distinct from the bright
+             primary, but uniformly white-labelled). Lighten on hover / darken on press. -->
         <Style x:Key="Ghost" TargetType="Button">
-            <Setter Property="Foreground" Value="{DynamicResource Fg}"/>
+            <Setter Property="Foreground" Value="White"/>
             <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Background" Value="{DynamicResource GhostBg}"/>
@@ -99,8 +100,44 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="8"/>
+                            <Border x:Name="ov" CornerRadius="8" Background="Transparent"/>
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ov" Property="Background" Value="#26FFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ov" Property="Background" Value="#33000000"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="b" Property="Background" Value="{DynamicResource DisabledBg}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource DisabledFg}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- subtle list-item / card button (the Recent list) — readable body text on a soft surface,
+             NOT a filled action button, so the session name stays legible. -->
+        <Style x:Key="Card" TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource Fg}"/>
+            <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Background" Value="{DynamicResource Bg}"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
                         <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="8"
-                                BorderBrush="{DynamicResource GhostBorder}" BorderThickness="1.4"
+                                BorderBrush="{DynamicResource Stroke}" BorderThickness="1"
                                 Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
                         </Border>
@@ -108,13 +145,6 @@
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="b" Property="Background" Value="{DynamicResource PanelHi}"/>
                                 <Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource Accent}"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="b" Property="Background" Value="{DynamicResource Bg}"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Foreground" Value="{DynamicResource DisabledFg}"/>
-                                <Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource DisabledBorder}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

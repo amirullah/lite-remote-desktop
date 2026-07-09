@@ -117,8 +117,9 @@ public static class ThemeManager
     private static readonly Palette Dark = new(
         Bg: C("#0A1220"), Panel: C("#111C30"), PanelHi: C("#1A2A47"), Stroke: C("#22335A"),
         Fg: C("#EAF1FB"), Muted: C("#7E90AE"), Good: C("#2FBF71"), Bad: C("#E5534B"),
-        Accent: C("#2F7CF6"), Accent2: C("#4EA1FF"), GhostBg: C("#0F1B30"), GhostBorder: C("#33507F"),
-        DisabledBg: C("#26344F"), DisabledBorder: C("#33456A"), DisabledFg: C("#6E7E9C"),
+        // GhostBg is a FILLED secondary-button surface (white text) — muted, not the bright primary.
+        Accent: C("#2F7CF6"), Accent2: C("#4EA1FF"), GhostBg: C("#2A3D5F"), GhostBorder: C("#33507F"),
+        DisabledBg: C("#26344F"), DisabledBorder: C("#33456A"), DisabledFg: C("#8494B0"),
         AppBg0: C("#0D1930"), AppBg1: C("#080E1B"));
 
     private static readonly Palette Light = new(
@@ -126,7 +127,7 @@ public static class ThemeManager
         Fg: C("#16233B"), Muted: C("#546482"), Good: C("#1E9E5A"), Bad: C("#D23F36"),
         // Deeper blue in light mode so WHITE button text stays clearly readable (a bright accent + white
         // text is low-contrast). Dark theme keeps the lighter accent (it pops against a dark background).
-        Accent: C("#1A64DC"), Accent2: C("#2E7DE8"), GhostBg: C("#EDF1F8"), GhostBorder: C("#C7D3E7"),
+        Accent: C("#1A64DC"), Accent2: C("#2E7DE8"), GhostBg: C("#51648A"), GhostBorder: C("#C7D3E7"),
         DisabledBg: C("#DCE3EF"), DisabledBorder: C("#CBD6E7"), DisabledFg: C("#8A98B0"),
         AppBg0: C("#F4F7FC"), AppBg1: C("#E8EEF8"));
 }
