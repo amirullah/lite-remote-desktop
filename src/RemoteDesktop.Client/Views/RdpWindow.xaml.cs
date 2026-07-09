@@ -221,6 +221,10 @@ public partial class RdpWindow : Window
 
         TryAdvanced(ocx, port, PassBox.Password);
 
+        // Send Windows shortcuts (Win, Alt+Tab, Ctrl+Esc) to the REMOTE while this session has focus.
+        try { ocx.SecuredSettings.KeyboardHookMode = 1; }
+        catch { try { ocx.SecuredSettings2.KeyboardHookMode = 1; } catch { } }
+
         ocx.Connect();
         Status($"Menghubungkan RDP ke {host}:{port} …");
         ConnectBtn.IsEnabled = false;
@@ -578,6 +582,8 @@ public partial class RdpWindow : Window
         if (!_rdpReady || !_rdp.IsConnected) return;
         _sessionUp = true;
         ApplyRemoteSize();
+        // Give the control focus so its keyboard hook bites (Win/Alt+Tab reach the remote).
+        try { _panel.Focus(); _rdp.Focus(); } catch { }
     }
 
     // Thread-safe: the VPN read loop reports state from a background thread, and touching a WPF element
