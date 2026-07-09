@@ -599,10 +599,14 @@ public partial class RdpWindow : Window
     {
         if (!_fullscreen) { HideBar(); return; }
         if (!GetCursorPos(out var c)) return;
-        var tl = PointToScreen(new Point(0, 0));           // window top-left in physical pixels
+        var tl = PointToScreen(new Point(0, 0));             // window top-left  (physical px)
+        var tr = PointToScreen(new Point(ActualWidth, 0));   // window top-right (physical px)
         double barH = 44 * DpiScale().sy;
-        bool nearTop = c.Y <= tl.Y + 2;
-        bool overBar = _bar is { IsVisible: true } && c.Y <= tl.Y + barH + 6;
+        // Constrain to THIS window's own monitor horizontally. A bare Y check also fires when the cursor
+        // touches the top edge of the OTHER monitor (tops are aligned), popping the bar over the viewer.
+        bool inX = c.X >= tl.X && c.X < tr.X;
+        bool nearTop = inX && c.Y <= tl.Y + 2;
+        bool overBar = _bar is { IsVisible: true } && inX && c.Y <= tl.Y + barH + 6;
         if (nearTop || overBar) ShowBar(tl); else HideBar();
     }
 
