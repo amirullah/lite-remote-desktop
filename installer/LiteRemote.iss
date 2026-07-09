@@ -87,7 +87,11 @@ begin
   // Close our own running instances so files can be replaced; ignore everything else.
   KillProcess('{#ClientExe}');
   KillProcess('{#HostExe}');
-  Sleep(500);
+  // The bundled VPN engine holds openvpn\*.dll (e.g. libcrypto-3-x64.dll) open while a tunnel is up,
+  // which otherwise fails the file replace with "Access is denied".
+  KillProcess('openvpn.exe');
+  KillProcess('openvpnserv.exe');
+  Sleep(700);
   Result := '';
 end;
 
@@ -97,6 +101,8 @@ begin
   begin
     KillProcess('{#ClientExe}');
     KillProcess('{#HostExe}');
-    Sleep(500);
+    KillProcess('openvpn.exe');
+    KillProcess('openvpnserv.exe');
+    Sleep(700);
   end;
 end;

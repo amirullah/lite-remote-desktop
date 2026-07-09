@@ -18,20 +18,34 @@ public sealed class RemoteInputController
 {
     private readonly Image _surface;
     private readonly RemoteConnection _connection;
+    private readonly LowLevelKeyboardHook _hook;
     private Window? _window;
     private bool _enabled;
+    private bool _windowActive;
+    private bool _keyboardPassthrough = true;
 
     public RemoteInputController(Image surface, RemoteConnection connection)
     {
         _surface = surface;
         _connection = connection;
+        _hook = new LowLevelKeyboardHook { OnKey = OnHookKey };
     }
 
     /// <summary>Enable/disable forwarding (e.g. off while a settings flyout is open).</summary>
     public bool Enabled
     {
         get => _enabled;
-        set => _enabled = value;
+        set { _enabled = value; UpdateHook(); }
+    }
+
+    /// <summary>
+    /// When true (default), Windows shortcuts (Win, Alt+Tab, Ctrl+Esc, …) are intercepted while the
+    /// session window is focused and forwarded to the remote instead of acting on the local PC.
+    /// </summary>
+    public bool KeyboardPassthrough
+    {
+        get => _keyboardPassthrough;
+        set { _keyboardPassthrough = value; UpdateHook(); }
     }
 
     public void Attach(Window window)
@@ -46,12 +60,20 @@ public sealed class RemoteInputController
         // Key events are captured at the window level so modifiers work even if focus drifts.
         window.PreviewKeyDown += OnKeyDown;
         window.PreviewKeyUp += OnKeyUp;
+
+        // The low-level hook (for Win/Alt+Tab/Ctrl+Esc) must live ONLY while this window is focused,
+        // or it would swallow the whole OS keyboard. Track activation to gate it.
+        window.Activated += OnWindowActivated;
+        window.Deactivated += OnWindowDeactivated;
+        _windowActive = window.IsActive;
+        UpdateHook();
     }
 
     /// <summary>Unhook everything — called when the session ends so keystrokes reach the connect form again.</summary>
     public void Detach()
     {
         _enabled = false;
+        _hook.Uninstall();
         _surface.MouseMove -= OnMouseMove;
         _surface.MouseDown -= OnMouseDown;
         _surface.MouseUp -= OnMouseUp;
@@ -60,8 +82,36 @@ public sealed class RemoteInputController
         {
             _window.PreviewKeyDown -= OnKeyDown;
             _window.PreviewKeyUp -= OnKeyUp;
+            _window.Activated -= OnWindowActivated;
+            _window.Deactivated -= OnWindowDeactivated;
             _window = null;
         }
+        _windowActive = false;
+    }
+
+    private void OnWindowActivated(object? sender, EventArgs e) { _windowActive = true; UpdateHook(); }
+    private void OnWindowDeactivated(object? sender, EventArgs e) { _windowActive = false; UpdateHook(); }
+
+    /// <summary>Install the keyboard hook only when we are enabled, want passthrough, and are focused.</summary>
+    private void UpdateHook()
+    {
+        if (_enabled && _keyboardPassthrough && _windowActive)
+            _hook.Install();
+        else
+            _hook.Uninstall();
+    }
+
+    /// <summary>
+    /// Called by the low-level hook for every key while the session is focused. Forwards to the remote
+    /// and returns true for the keys Windows would otherwise consume locally (Win, Alt+Tab, Ctrl+Esc…).
+    /// </summary>
+    private bool OnHookKey(int vk, uint scan, bool ext, bool down)
+    {
+        if (!_enabled) return false;
+        SendKeyRaw(vk, scan, ext, down);
+        // Swallow the system-grabbing keys so they travel to the remote instead of the local desktop.
+        // 0x5B/0x5C = L/R Win, 0x09 = Tab, 0x1B = Esc, 0x5D = Apps/Menu.
+        return vk is 0x5B or 0x5C or 0x09 or 0x1B or 0x5D;
     }
 
     // ---------- mouse ----------
@@ -140,6 +190,9 @@ public sealed class RemoteInputController
     private void OnKeyDown(object sender, KeyEventArgs e)
     {
         if (!_enabled) return;
+        // When the low-level hook is live it already forwarded this key — just swallow it locally so
+        // WPF navigation doesn't also react, and don't send it twice.
+        if (_hook.Installed) { e.Handled = true; return; }
         SendKey(e, down: true);
         e.Handled = true; // don't let the key drive local WPF navigation
     }
@@ -147,6 +200,7 @@ public sealed class RemoteInputController
     private void OnKeyUp(object sender, KeyEventArgs e)
     {
         if (!_enabled) return;
+        if (_hook.Installed) { e.Handled = true; return; }
         SendKey(e, down: false);
         e.Handled = true;
     }
@@ -158,6 +212,14 @@ public sealed class RemoteInputController
         if (vk == 0) return;
         uint scan = MapVirtualKey((uint)vk, MAPVK_VK_TO_VSC);
         _connection.SendKey(new KeyEventData((ushort)vk, (ushort)scan, down, IsExtended(key)));
+    }
+
+    /// <summary>Forward a key straight from the low-level hook (already has vk/scan/extended).</summary>
+    private void SendKeyRaw(int vk, uint scan, bool ext, bool down)
+    {
+        if (vk == 0) return;
+        if (scan == 0) scan = MapVirtualKey((uint)vk, MAPVK_VK_TO_VSC);
+        _connection.SendKey(new KeyEventData((ushort)vk, (ushort)scan, down, ext));
     }
 
     private static bool IsExtended(Key key) => key switch
