@@ -21,17 +21,13 @@ public partial class MainWindow : Window
     private readonly ClientConfig _config = ClientConfig.Shared;
     private readonly PinStore _pins = new(AppPaths.PinStore);
 
-    private bool _suppressPrefs;
-
     public MainWindow()
     {
         InitializeComponent();
 
-        // Theme / language pickers reflect the saved preference (without re-triggering a save).
-        _suppressPrefs = true;
-        ThemeBox.SelectedIndex = ThemeManager.Preference switch { AppTheme.Light => 1, AppTheme.Dark => 2, _ => 0 };
-        LangBox.SelectedIndex = Loc.Lang == "en" ? 1 : 0;
-        _suppressPrefs = false;
+        // Keep the top-bar sun/moon glyph in sync with the live theme (incl. OS switches while on System).
+        ThemeManager.Changed += UpdateThemeIcon;
+        UpdateThemeIcon();
 
         RelayBox.Text = _config.RelayAddress;
         if (!string.IsNullOrEmpty(_config.GoogleClientId)) GoogleClientIdBox.Text = _config.GoogleClientId;
@@ -64,7 +60,13 @@ public partial class MainWindow : Window
 
     private void RecentDelete_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.Tag is SavedSession s) { _config.DeleteSession(s.Id); RefreshRecent(); }
+        if ((sender as FrameworkElement)?.Tag is not SavedSession s) return;
+        if (_config.ConfirmDelete &&
+            MessageBox.Show(this, Loc.F("Connect.DeleteConfirm", s.DisplayName), Loc.T("Connect.WindowTitle"),
+                MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+            return;
+        _config.DeleteSession(s.Id);
+        RefreshRecent();
     }
 
     /// <summary>Open the editor for a saved session (remote account + VPN user/password).</summary>
@@ -454,24 +456,32 @@ public partial class MainWindow : Window
 
     // ---------------- theme + language ----------------
 
-    private void Theme_Changed(object sender, SelectionChangedEventArgs e)
+    /// <summary>Update the top-bar toggle glyph to reflect the theme actually in effect.</summary>
+    private void UpdateThemeIcon()
     {
-        if (_suppressPrefs) return;
-        var t = ThemeBox.SelectedIndex switch { 1 => AppTheme.Light, 2 => AppTheme.Dark, _ => AppTheme.System };
+        // Segoe Fluent/MDL2 glyphs: E706 = brightness (sun), E708 = quiet-hours (moon).
+        ThemeToggleBtn.Content = ThemeManager.IsDark ? "" : "";
+    }
+
+    /// <summary>One-tap light↔dark from the top bar; the "Follow system" choice stays in Settings.</summary>
+    private void ThemeToggle_Click(object sender, RoutedEventArgs e)
+    {
+        var t = ThemeManager.IsDark ? AppTheme.Light : AppTheme.Dark;
         ThemeManager.SetPreference(t);
         _config.Theme = ThemeManager.ToKey(t);
         _config.Save();
+        UpdateThemeIcon();
     }
 
-    private void Language_Changed(object sender, SelectionChangedEventArgs e)
+    private void Settings_Click(object sender, RoutedEventArgs e)
     {
-        if (_suppressPrefs) return;
-        var lang = LangBox.SelectedIndex == 1 ? "en" : "id";
-        Loc.SetLanguage(lang);
-        Mode_Changed(this, new RoutedEventArgs());   // refresh the code-set Connect button label
-        _config.Language = lang;
-        _config.Save();
+        new SettingsWindow(_config) { Owner = this }.ShowDialog();
+        UpdateThemeIcon();   // theme may have changed inside Settings
+        RefreshRecent();     // saved sessions may have been cleared inside Settings
     }
+
+    /// <summary>Called by Settings after a language switch to refresh code-set (non-binding) text.</summary>
+    public void ApplyLanguageChange() => Mode_Changed(this, new RoutedEventArgs());
 
     private void SetStatus(string text) => StatusText.Text = text;
 

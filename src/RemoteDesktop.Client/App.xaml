@@ -156,6 +156,46 @@
             </Setter>
         </Style>
 
+        <!-- icon-only button (theme toggle, settings gear): square, transparent, glyph follows the theme,
+             soft rounded highlight on hover. Foreground=Fg so the glyph is legible in BOTH themes. -->
+        <Style x:Key="IconButton" TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource Fg}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Width" Value="40"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets"/>
+            <Setter Property="FontSize" Value="19"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="10"
+                                BorderBrush="Transparent" BorderThickness="1">
+                            <!-- Force the icon font onto the glyph. The app-wide implicit TextBlock style sets
+                                 FontFamily=Segoe UI Variable and would otherwise bleed into the string content
+                                 (rendering the PUA glyph as tofu); this scoped style wins for button text. -->
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <ContentPresenter.Resources>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets"/>
+                                    </Style>
+                                </ContentPresenter.Resources>
+                            </ContentPresenter>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="{DynamicResource PanelHi}"/>
+                                <Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource Stroke}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="{DynamicResource Stroke}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- ============ inputs ============ -->
         <Style TargetType="TextBox">
             <Setter Property="Foreground" Value="{DynamicResource Fg}"/>

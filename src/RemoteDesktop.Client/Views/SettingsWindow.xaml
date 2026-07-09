@@ -1,0 +1,150 @@
+<Window x:Class="RemoteDesktop.Client.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:RemoteDesktop.Client.Services"
+        Title="{loc:Loc Settings.Title}" Width="560" Height="720"
+        Icon="/Assets/literemote.ico" ResizeMode="NoResize"
+        Background="{DynamicResource AppBg}" WindowStartupLocation="CenterOwner"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        Foreground="{DynamicResource Fg}"
+        FontFamily="Segoe UI Variable, Segoe UI"
+        TextOptions.TextRenderingMode="ClearType" TextOptions.TextFormattingMode="Display">
+
+    <Window.Resources>
+        <Style x:Key="SCard" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource Panel}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Stroke}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="16"/>
+            <Setter Property="Margin" Value="0,0,0,14"/>
+        </Style>
+        <Style x:Key="STitle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="2,0,0,12"/>
+        </Style>
+        <!-- pill container for a segmented (RadioButton) choice -->
+        <Style x:Key="SSegBox" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource Bg}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Stroke}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="9"/>
+            <Setter Property="Padding" Value="3"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- ===== header ===== -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="22,20,22,8">
+            <Border Width="38" Height="38" CornerRadius="11" Background="{DynamicResource AccentGrad}">
+                <TextBlock Text="&#xE713;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="18"
+                           Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <TextBlock Text="{loc:Loc Settings.Title}" FontSize="22" FontWeight="Bold"
+                       VerticalAlignment="Center" Margin="12,0,0,0"/>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="22,8,22,4">
+            <StackPanel>
+
+                <!-- ===== Appearance ===== -->
+                <Border Style="{StaticResource SCard}">
+                    <StackPanel>
+                        <TextBlock Text="{loc:Loc Settings.Appearance}" Style="{StaticResource STitle}"/>
+
+                        <TextBlock Text="{loc:Loc Settings.ThemeLabel}" Foreground="{DynamicResource Fg}"
+                                   FontWeight="SemiBold" Margin="2,0,0,6"/>
+                        <Border Style="{StaticResource SSegBox}" Margin="0,0,0,14">
+                            <UniformGrid Rows="1">
+                                <RadioButton x:Name="ThemeSystem" GroupName="Theme" Style="{StaticResource Segment}"
+                                             Content="{loc:Loc Settings.Theme.System}" Checked="Theme_Checked"/>
+                                <RadioButton x:Name="ThemeLight" GroupName="Theme" Style="{StaticResource Segment}"
+                                             Content="{loc:Loc Settings.Theme.Light}" Checked="Theme_Checked"/>
+                                <RadioButton x:Name="ThemeDark" GroupName="Theme" Style="{StaticResource Segment}"
+                                             Content="{loc:Loc Settings.Theme.Dark}" Checked="Theme_Checked"/>
+                            </UniformGrid>
+                        </Border>
+
+                        <TextBlock Text="{loc:Loc Settings.LanguageLabel}" Foreground="{DynamicResource Fg}"
+                                   FontWeight="SemiBold" Margin="2,0,0,6"/>
+                        <Border Style="{StaticResource SSegBox}">
+                            <UniformGrid Rows="1">
+                                <RadioButton x:Name="LangId" GroupName="Lang" Style="{StaticResource Segment}"
+                                             Content="Indonesia" Checked="Language_Checked"/>
+                                <RadioButton x:Name="LangEn" GroupName="Lang" Style="{StaticResource Segment}"
+                                             Content="English" Checked="Language_Checked"/>
+                            </UniformGrid>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <!-- ===== how to set up RDP on the host ===== -->
+                <Border Style="{StaticResource SCard}">
+                    <StackPanel>
+                        <TextBlock Text="{loc:Loc Settings.HostRdp.Title}" Style="{StaticResource STitle}"/>
+                        <TextBlock Text="{loc:Loc Settings.HostRdp.Body}" Foreground="{DynamicResource Fg}"
+                                   TextWrapping="Wrap" LineHeight="20" FontSize="13"/>
+                        <Button Content="{loc:Loc Settings.HostRdp.OpenSettings}" Style="{StaticResource Ghost}"
+                                HorizontalAlignment="Left" Margin="0,14,0,0" Click="OpenRdpSettings_Click"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- ===== other ===== -->
+                <Border Style="{StaticResource SCard}">
+                    <StackPanel>
+                        <TextBlock Text="{loc:Loc Settings.Other.Title}" Style="{StaticResource STitle}"/>
+                        <CheckBox x:Name="StartupCheck" Content="{loc:Loc Settings.Other.Startup}"
+                                  Margin="0,0,0,10" Click="Startup_Click"/>
+                        <CheckBox x:Name="ConfirmDeleteCheck" Content="{loc:Loc Settings.Other.ConfirmDelete}"
+                                  Margin="0,0,0,14" Click="ConfirmDelete_Click"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="{loc:Loc Settings.Other.OpenData}" Style="{StaticResource Ghost}"
+                                    Click="OpenData_Click"/>
+                            <Button Content="{loc:Loc Settings.Other.ClearSessions}" Style="{StaticResource Danger}"
+                                    Margin="10,0,0,0" Click="ClearSessions_Click"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- ===== about ===== -->
+                <Border Style="{StaticResource SCard}">
+                    <StackPanel>
+                        <TextBlock Text="{loc:Loc Settings.About.Title}" Style="{StaticResource STitle}"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                            <Border Width="46" Height="46" CornerRadius="13" Background="{DynamicResource AccentGrad}">
+                                <TextBlock Text="◆" FontSize="22" Foreground="White"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="LiteRemote" FontSize="20" FontWeight="Bold"/>
+                                <TextBlock x:Name="VersionText" Foreground="{DynamicResource Muted}" FontSize="12.5"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <TextBlock Text="{loc:Loc Settings.About.Desc}" Foreground="{DynamicResource Fg}"
+                                   TextWrapping="Wrap" LineHeight="20" FontSize="13" Margin="0,0,0,10"/>
+                        <TextBlock Text="{loc:Loc Settings.About.Author}" Foreground="{DynamicResource Fg}"
+                                   FontWeight="SemiBold" Margin="0,0,0,12"/>
+                        <Button Content="{loc:Loc Settings.About.Github}" Style="{StaticResource Ghost}"
+                                HorizontalAlignment="Left" Click="Github_Click"/>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- ===== footer ===== -->
+        <Border Grid.Row="2" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource Stroke}"
+                BorderThickness="0,1,0,0" Padding="22,12">
+            <Button Content="{loc:Loc Common.Close}" Style="{StaticResource Ghost}"
+                    HorizontalAlignment="Right" MinWidth="120" Click="Close_Click"/>
+        </Border>
+    </Grid>
+</Window>

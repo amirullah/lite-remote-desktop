@@ -19,6 +19,13 @@ public static class ThemeManager
 
     public static AppTheme Preference => _pref;
 
+    /// <summary>The theme actually in effect right now (resolves "System" to the live OS setting).</summary>
+    public static bool IsDark => EffectiveDark();
+
+    /// <summary>Raised after every apply (preference change OR an OS light/dark switch while on System),
+    /// so UI like the top-bar sun/moon toggle can refresh its glyph.</summary>
+    public static event Action? Changed;
+
     public static AppTheme Parse(string? s) => s?.Trim().ToLowerInvariant() switch
     {
         "light" => AppTheme.Light,
@@ -86,6 +93,8 @@ public static class ThemeManager
         SetColor("DisabledFg", p.DisabledFg);
         SetGradient("AccentGrad", p.Accent, p.Accent2);
         SetGradient("AppBg", p.AppBg0, p.AppBg1);
+
+        Changed?.Invoke();
     }
 
     // Replace the resource object (not mutate) — resource brushes may be frozen, and every consumer

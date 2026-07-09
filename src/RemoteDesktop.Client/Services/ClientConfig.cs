@@ -20,6 +20,9 @@ public sealed class ClientConfig
     /// <summary>UI language preference: "id" | "en".</summary>
     public string Language { get; set; } = "id";
 
+    /// <summary>Ask for confirmation before deleting a saved session from the Recent list.</summary>
+    public bool ConfirmDelete { get; set; } = true;
+
     /// <summary>Relay server ("host:port") used for ID-based connections. Shared with the host side.</summary>
     public string RelayAddress { get; set; } = "";
 
@@ -70,6 +73,20 @@ public sealed class ClientConfig
 
     public void TouchSession(string id) { var s = GetSession(id); if (s != null) UpsertSession(s); }
     public void DeleteSession(string id) { Sessions.RemoveAll(x => x.Id == id); Secrets.Remove("session:" + id); Save(); }
+
+    /// <summary>Wipe every saved session and VPN profile, plus their remembered passwords (session:/vpn:/rdp:).
+    /// Used by Settings → "Delete all saved sessions". Irreversible.</summary>
+    public void ClearAllSessions()
+    {
+        Sessions.Clear();
+        VpnProfiles.Clear();
+        Recent.Clear();
+        foreach (var key in Secrets.Keys
+                     .Where(k => k.StartsWith("session:") || k.StartsWith("vpn:") || k.StartsWith("rdp:"))
+                     .ToList())
+            Secrets.Remove(key);
+        Save();
+    }
 
     public void SetPinned(string id, bool pin)
     {

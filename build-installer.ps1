@@ -81,7 +81,7 @@ Write-Host "== Publish viewer (client) =="
 & $dotnet publish "$root\src\RemoteDesktop.Client\RemoteDesktop.Client.csproj" `
     -c Release -r win-x64 --self-contained true `
     -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-    -p:EnableCompressionInSingleFile=true -p:DebugType=none `
+    -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:Version=$Version `
     -o "$root\publish\client"
 if ($LASTEXITCODE -ne 0) { throw "Publish client gagal" }
 
