@@ -500,11 +500,21 @@ public partial class RdpWindow : Window
 
                 // --- speed + stability over a (possibly TCP) VPN link ---
                 // Disable eye-candy the link doesn't need: wallpaper(0x1), full-window-drag(0x2),
-                // menu animations(0x4), theming(0x8), cursor shadow(0x20) → far less to send, snappier.
-                try { adv.PerformanceFlags = 0x2F; } catch { }
+                // menu animations(0x4), theming(0x8), cursor shadow(0x20), cursor settings(0x40) → far
+                // less to send, snappier. (0x80 font-smoothing / 0x100 desktop-composition are ENABLE
+                // bits — deliberately left OFF so they don't add bandwidth.)
+                try { adv.PerformanceFlags = 0x6F; } catch { }
                 try { adv.BitmapPersistence = 1; } catch { }               // cache tiles to disk → don't resend
                 try { adv.CachePersistenceActive = 1; } catch { }
                 try { adv.Compress = 1; } catch { }
+                // Let RDP measure the link and auto-tune its codec/effects (big win on a slow VPN).
+                try { adv.NetworkConnectionType = 7; } catch { }           // 7 = auto-detect
+                try { adv.BandwidthDetection = true; } catch { }
+                // Nothing to redirect for a viewer session — skip the negotiation/overhead.
+                try { adv.RedirectDrives = false; } catch { }
+                try { adv.RedirectPrinters = false; } catch { }
+                try { adv.RedirectPorts = false; } catch { }
+                try { adv.RedirectSmartCards = false; } catch { }
                 try { adv.EnableAutoReconnect = true; } catch { }          // survive brief VPN drops
                 try { adv.MaxReconnectAttempts = 20; } catch { }
                 try { adv.keepAliveInterval = 20000; } catch { }           // detect dead links promptly
@@ -594,22 +604,22 @@ public partial class RdpWindow : Window
     private void EnsureBar()
     {
         if (_bar != null) return;
-        var bg = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x12, 0x2A, 0x4D));
+        var bg = ThemeBrush("Panel");   // follow the app theme (dark/light)
         var dock = new System.Windows.Controls.DockPanel { Background = bg, LastChildFill = false };
 
         var hostLbl = new System.Windows.Controls.TextBlock
         {
             Text = "  🖥  " + HostBox.Text.Trim() + "     " + Loc.T("Rdp.Bar.FullscreenSuffix"),
-            Foreground = System.Windows.Media.Brushes.White, FontWeight = FontWeights.SemiBold,
+            Foreground = ThemeBrush("Fg"), FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0),
         };
         System.Windows.Controls.DockPanel.SetDock(hostLbl, System.Windows.Controls.Dock.Left);
 
-        var exit = MakeBarButton(Loc.T("Rdp.Bar.ExitFullscreen"), "#2D7DF6");
+        var exit = MakeBarButton(Loc.T("Rdp.Bar.ExitFullscreen"), ThemeBrush("Accent"));
         exit.Click += (_, _) => ToggleFullscreen();
         System.Windows.Controls.DockPanel.SetDock(exit, System.Windows.Controls.Dock.Right);
 
-        var disc = MakeBarButton(Loc.T("Common.Disconnect"), "#C0453B");
+        var disc = MakeBarButton(Loc.T("Common.Disconnect"), ThemeBrush("Bad"));
         disc.Click += (_, _) => { Disconnect_Click(this, new RoutedEventArgs()); ToggleFullscreen(); };
         System.Windows.Controls.DockPanel.SetDock(disc, System.Windows.Controls.Dock.Right);
 
@@ -624,9 +634,11 @@ public partial class RdpWindow : Window
         };
     }
 
-    private static System.Windows.Controls.Button MakeBarButton(string text, string hex)
+    private static System.Windows.Media.Brush ThemeBrush(string key)
+        => Application.Current?.Resources[key] as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.Gray;
+
+    private static System.Windows.Controls.Button MakeBarButton(string text, System.Windows.Media.Brush brush)
     {
-        var brush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString(hex)!;
         return new System.Windows.Controls.Button
         {
             Content = text, Margin = new Thickness(8, 6, 8, 6), Padding = new Thickness(14, 4, 14, 4),

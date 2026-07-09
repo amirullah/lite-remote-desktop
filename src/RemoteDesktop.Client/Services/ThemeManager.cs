@@ -123,8 +123,10 @@ public static class ThemeManager
 
     private static readonly Palette Light = new(
         Bg: C("#EDF1F8"), Panel: C("#FFFFFF"), PanelHi: C("#E3EAF6"), Stroke: C("#D2DCEC"),
-        Fg: C("#16233B"), Muted: C("#5C6C88"), Good: C("#1E9E5A"), Bad: C("#D23F36"),
-        Accent: C("#2F7CF6"), Accent2: C("#4EA1FF"), GhostBg: C("#EDF1F8"), GhostBorder: C("#C7D3E7"),
-        DisabledBg: C("#DCE3EF"), DisabledBorder: C("#CBD6E7"), DisabledFg: C("#97A4BB"),
+        Fg: C("#16233B"), Muted: C("#546482"), Good: C("#1E9E5A"), Bad: C("#D23F36"),
+        // Deeper blue in light mode so WHITE button text stays clearly readable (a bright accent + white
+        // text is low-contrast). Dark theme keeps the lighter accent (it pops against a dark background).
+        Accent: C("#1A64DC"), Accent2: C("#2E7DE8"), GhostBg: C("#EDF1F8"), GhostBorder: C("#C7D3E7"),
+        DisabledBg: C("#DCE3EF"), DisabledBorder: C("#CBD6E7"), DisabledFg: C("#8A98B0"),
         AppBg0: C("#F4F7FC"), AppBg1: C("#E8EEF8"));
 }

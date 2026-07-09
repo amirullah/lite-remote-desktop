@@ -4,23 +4,20 @@
         xmlns:loc="clr-namespace:RemoteDesktop.Client.Services"
         xmlns:wfi="clr-namespace:System.Windows.Forms.Integration;assembly=WindowsFormsIntegration"
         Title="{loc:Loc Rdp.WindowTitle}" Height="820" Width="1240"
-        WindowStartupLocation="CenterScreen" Background="#0B1B34"
+        WindowStartupLocation="CenterScreen" Background="{DynamicResource Bg}"
         Icon="/Assets/literemote.ico" KeyDown="Window_KeyDown">
     <DockPanel>
         <!-- ===== Top bar: connect fields + session actions (hidden in fullscreen) ===== -->
-        <Border x:Name="TopBar" DockPanel.Dock="Top" Background="#122A4D" Padding="12,9">
+        <Border x:Name="TopBar" DockPanel.Dock="Top" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource Stroke}" BorderThickness="0,0,0,1" Padding="12,9">
             <StackPanel>
                 <!-- Hero connect row. Session actions (Putus/Fullscreen) sit in their own always-visible
                      strip on the right; the connect inputs (ConnectFields) can be hidden after a
                      hands-off connect from the main form / Recent, without hiding the session controls. -->
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Button x:Name="RetryBtn" Content="{loc:Loc Rdp.Retry}" Visibility="Collapsed" Margin="8,0,0,0" Padding="16,6"
-                                Background="#2D7DF6" Foreground="White" BorderThickness="0" FontWeight="SemiBold" Click="Retry_Click"/>
-                        <Button x:Name="DisconnectBtn" Content="{loc:Loc Common.Disconnect}" Margin="8,0,0,0" Padding="14,6"
-                                Background="#33507F" Foreground="White" BorderThickness="0" Click="Disconnect_Click" IsEnabled="False"/>
-                        <Button x:Name="FullscreenBtn" Content="⛶" Margin="8,0,0,0" Padding="11,6" FontSize="14"
-                                Background="#33507F" Foreground="White" BorderThickness="0" Click="Fullscreen_Click"
+                        <Button x:Name="RetryBtn" Content="{loc:Loc Rdp.Retry}" Visibility="Collapsed" Margin="8,0,0,0" Padding="16,6" Click="Retry_Click"/>
+                        <Button x:Name="DisconnectBtn" Content="{loc:Loc Common.Disconnect}" Style="{StaticResource Danger}" Margin="8,0,0,0" Padding="14,6" Click="Disconnect_Click" IsEnabled="False"/>
+                        <Button x:Name="FullscreenBtn" Content="⛶" Style="{StaticResource Ghost}" Margin="8,0,0,0" Padding="11,6" FontSize="14" Click="Fullscreen_Click"
                                 ToolTip="{loc:Loc Rdp.FullscreenTip}"/>
                     </StackPanel>
                     <Grid x:Name="ConnectFields">
@@ -34,25 +31,24 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="{loc:Loc Rdp.HostLabel}" Foreground="#9FC0F0" VerticalAlignment="Center" Margin="2,0,8,0" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Column="0" Text="{loc:Loc Rdp.HostLabel}" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="2,0,8,0" FontWeight="SemiBold"/>
                         <TextBox   Grid.Column="1" x:Name="HostBox" VerticalContentAlignment="Center" Padding="8,6" FontSize="14" MinWidth="180" LostFocus="HostBox_LostFocus"
                                    ToolTip="{loc:Loc Rdp.HostTip}"/>
-                        <TextBlock Grid.Column="2" Text="{loc:Loc Rdp.UserLabel}" Foreground="#9FC0F0" VerticalAlignment="Center" Margin="14,0,6,0" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Column="2" Text="{loc:Loc Rdp.UserLabel}" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="14,0,6,0" FontWeight="SemiBold"/>
                         <TextBox   Grid.Column="3" x:Name="UserBox" VerticalContentAlignment="Center" Padding="6,5"/>
-                        <TextBlock Grid.Column="4" Text="{loc:Loc Rdp.PasswordLabel}" Foreground="#9FC0F0" VerticalAlignment="Center" Margin="14,0,6,0" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Column="4" Text="{loc:Loc Rdp.PasswordLabel}" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="14,0,6,0" FontWeight="SemiBold"/>
                         <PasswordBox Grid.Column="5" x:Name="PassBox" VerticalContentAlignment="Center" Padding="6,5"/>
-                        <CheckBox  Grid.Column="6" x:Name="SaveCredsCheck" Content="{loc:Loc Rdp.SaveCreds}" Foreground="#9FC0F0"
+                        <CheckBox  Grid.Column="6" x:Name="SaveCredsCheck" Content="{loc:Loc Rdp.SaveCreds}" Foreground="{DynamicResource Muted}"
                                    VerticalAlignment="Center" Margin="14,0,2,0"
                                    ToolTip="{loc:Loc Rdp.SaveCredsTip}"/>
-                        <Button Grid.Column="7" x:Name="ConnectBtn" Content="{loc:Loc Rdp.ConnectButton}" Margin="14,0,0,0" Padding="18,6"
-                                Background="#2D7DF6" Foreground="White" BorderThickness="0" FontWeight="SemiBold" Click="Connect_Click"/>
+                        <Button Grid.Column="7" x:Name="ConnectBtn" Content="{loc:Loc Rdp.ConnectButton}" Margin="14,0,0,0" Padding="18,6" Click="Connect_Click"/>
                     </Grid>
                 </DockPanel>
 
                 <!-- VPN is OPTIONAL and collapsed by default, so direct RDP needs zero extra fields.
                      Expand only when the host is reachable only through an OpenVPN tunnel. -->
                 <Expander x:Name="VpnExpander" Header="{loc:Loc Rdp.VpnExpanderHeader}"
-                          Foreground="#9FC0F0" Margin="2,8,0,0" FontSize="12">
+                          Foreground="{DynamicResource Muted}" Margin="2,8,0,0" FontSize="12">
                     <Grid Margin="0,8,0,2">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -64,16 +60,14 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="160"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="{loc:Loc Rdp.OvpnProfileLabel}" Foreground="#9FC0F0" VerticalAlignment="Center" Margin="2,0,6,0"/>
+                        <TextBlock Grid.Column="0" Text="{loc:Loc Rdp.OvpnProfileLabel}" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="2,0,6,0"/>
                         <TextBox   Grid.Column="1" x:Name="VpnBox" VerticalContentAlignment="Center" Padding="6,4" TextChanged="VpnBox_TextChanged"
                                    ToolTip="{loc:Loc Rdp.VpnBoxTip}"/>
-                        <Button Grid.Column="2" x:Name="PickVpnBtn" Content="{loc:Loc Common.Pick}" Margin="8,0,0,0" Padding="12,4"
-                                Background="#33507F" Foreground="White" BorderThickness="0" Click="PickVpn_Click"/>
-                        <Button Grid.Column="3" x:Name="ClearVpnBtn" Content="✕" Margin="6,0,0,0" Padding="9,4"
-                                Background="#33507F" Foreground="White" BorderThickness="0" Click="ClearVpn_Click" ToolTip="{loc:Loc Rdp.ClearVpnTip}"/>
-                        <TextBlock Grid.Column="4" Text="{loc:Loc Rdp.VpnUserLabel}" Foreground="#9FC0F0" VerticalAlignment="Center" Margin="14,0,6,0"/>
+                        <Button Grid.Column="2" x:Name="PickVpnBtn" Content="{loc:Loc Common.Pick}" Style="{StaticResource Ghost}" Margin="8,0,0,0" Padding="12,4" Click="PickVpn_Click"/>
+                        <Button Grid.Column="3" x:Name="ClearVpnBtn" Content="✕" Style="{StaticResource Ghost}" Margin="6,0,0,0" Padding="9,4" Click="ClearVpn_Click" ToolTip="{loc:Loc Rdp.ClearVpnTip}"/>
+                        <TextBlock Grid.Column="4" Text="{loc:Loc Rdp.VpnUserLabel}" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="14,0,6,0"/>
                         <TextBox   Grid.Column="5" x:Name="VpnUserBox" VerticalContentAlignment="Center" Padding="6,4"/>
-                        <TextBlock Grid.Column="6" Text="{loc:Loc Rdp.VpnPassLabel}" Foreground="#9FC0F0" VerticalAlignment="Center" Margin="14,0,6,0"/>
+                        <TextBlock Grid.Column="6" Text="{loc:Loc Rdp.VpnPassLabel}" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="14,0,6,0"/>
                         <PasswordBox Grid.Column="7" x:Name="VpnPassBox" VerticalContentAlignment="Center" Padding="6,4"/>
                     </Grid>
                 </Expander>
@@ -81,8 +75,8 @@
         </Border>
 
         <!-- ===== Status strip ===== -->
-        <Border DockPanel.Dock="Bottom" Background="#0E294A" Padding="12,4">
-            <TextBlock x:Name="StatusText" Foreground="#B9D2F5" Text="{loc:Loc Rdp.StatusDefault}"/>
+        <Border DockPanel.Dock="Bottom" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource Stroke}" BorderThickness="0,1,0,0" Padding="12,4">
+            <TextBlock x:Name="StatusText" Foreground="{DynamicResource Muted}" Text="{loc:Loc Rdp.StatusDefault}"/>
         </Border>
 
         <!-- ===== The embedded RDP session ===== -->
