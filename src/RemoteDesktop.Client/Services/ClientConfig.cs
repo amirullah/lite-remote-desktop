@@ -15,6 +15,11 @@ public sealed class ClientConfig
     public SessionSettings DefaultSettings { get; set; } = new();
     public string? GoogleClientId { get; set; }
 
+    /// <summary>UI theme preference: "system" | "dark" | "light".</summary>
+    public string Theme { get; set; } = "system";
+    /// <summary>UI language preference: "id" | "en".</summary>
+    public string Language { get; set; } = "id";
+
     /// <summary>Relay server ("host:port") used for ID-based connections. Shared with the host side.</summary>
     public string RelayAddress { get; set; } = "";
 

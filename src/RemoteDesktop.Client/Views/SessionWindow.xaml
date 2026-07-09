@@ -1,7 +1,8 @@
 <Window x:Class="RemoteDesktop.Client.Views.SessionWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="LiteRemote — sesi" Height="760" Width="1120"
+        xmlns:loc="clr-namespace:RemoteDesktop.Client.Services"
+        Title="{loc:Loc Session.WindowTitle}" Height="760" Width="1120"
         Icon="/Assets/literemote.ico"
         Background="#05060A" WindowStartupLocation="CenterScreen"
         UseLayoutRounding="True"
@@ -15,22 +16,22 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <Border x:Name="SessionToolbar" Grid.Row="0" Background="{StaticResource Panel}" BorderBrush="{StaticResource Stroke}"
+            <Border x:Name="SessionToolbar" Grid.Row="0" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource Stroke}"
                     BorderThickness="0,0,0,1" Padding="12,8">
                 <DockPanel LastChildFill="False">
                     <Border DockPanel.Dock="Left" Width="9" Height="9" CornerRadius="5"
-                            Background="{StaticResource Good}" VerticalAlignment="Center" Margin="2,0,10,0"/>
-                    <TextBlock x:Name="MonitorLabel" DockPanel.Dock="Left" Text="Monitor" Foreground="{StaticResource Muted}"
+                            Background="{DynamicResource Good}" VerticalAlignment="Center" Margin="2,0,10,0"/>
+                    <TextBlock x:Name="MonitorLabel" DockPanel.Dock="Left" Text="{loc:Loc Session.MonitorLabel}" Foreground="{DynamicResource Muted}"
                                VerticalAlignment="Center" Margin="0,0,6,0"
-                               ToolTip="Layar fisik di PC host yang ditampilkan (bila host punya beberapa monitor). Angka = resolusi asli monitor itu."/>
+                               ToolTip="{loc:Loc Session.MonitorLabelTip}"/>
                     <ComboBox x:Name="DisplayBox" Width="150" DockPanel.Dock="Left" SelectionChanged="Display_Changed"
-                              ToolTip="Pilih monitor host yang ingin dilihat."/>
+                              ToolTip="{loc:Loc Session.DisplayBoxTip}"/>
 
-                    <TextBlock DockPanel.Dock="Left" Text="FPS" Foreground="{StaticResource Muted}"
+                    <TextBlock DockPanel.Dock="Left" Text="{loc:Loc Session.FpsLabel}" Foreground="{DynamicResource Muted}"
                                VerticalAlignment="Center" Margin="16,0,6,0"/>
                     <ComboBox x:Name="SessionFpsBox" Width="100" DockPanel.Dock="Left" SelectedIndex="0"
                               SelectionChanged="SessionFps_Changed">
-                        <ComboBoxItem>Auto</ComboBoxItem>
+                        <ComboBoxItem Content="{loc:Loc Session.FpsAuto}"/>
                         <ComboBoxItem>15</ComboBoxItem>
                         <ComboBoxItem>24</ComboBoxItem>
                         <ComboBoxItem>30</ComboBoxItem>
@@ -42,13 +43,13 @@
                         <ComboBoxItem>144</ComboBoxItem>
                     </ComboBox>
 
-                    <TextBlock DockPanel.Dock="Left" Text="Res" Foreground="{StaticResource Muted}"
+                    <TextBlock DockPanel.Dock="Left" Text="{loc:Loc Session.ResLabel}" Foreground="{DynamicResource Muted}"
                                VerticalAlignment="Center" Margin="16,0,6,0"
-                               ToolTip="Perkecil ukuran stream untuk hemat data / koneksi lambat. 'Default' = resolusi asli (paling tajam). Nilai lebih kecil = lebih ringan tapi kurang tajam."/>
+                               ToolTip="{loc:Loc Session.ResLabelTip}"/>
                     <ComboBox x:Name="SessionResBox" Width="130" DockPanel.Dock="Left" SelectedIndex="0"
                               SelectionChanged="SessionRes_Changed"
-                              ToolTip="Default = tajam (resolusi asli host). Pilih lebih kecil hanya bila koneksi lambat.">
-                        <ComboBoxItem>Default</ComboBoxItem>
+                              ToolTip="{loc:Loc Session.ResBoxTip}">
+                        <ComboBoxItem Content="{loc:Loc Session.ResDefault}"/>
                         <ComboBoxItem>4K (3840×2160)</ComboBoxItem>
                         <ComboBoxItem>2560×1600</ComboBoxItem>
                         <ComboBoxItem>2560×1440</ComboBoxItem>
@@ -61,35 +62,35 @@
                         <ComboBoxItem>1024×768</ComboBoxItem>
                     </ComboBox>
 
-                    <TextBlock DockPanel.Dock="Left" Text="Codec" Foreground="{StaticResource Muted}"
+                    <TextBlock DockPanel.Dock="Left" Text="{loc:Loc Session.CodecLabel}" Foreground="{DynamicResource Muted}"
                                VerticalAlignment="Center" Margin="16,0,6,0"/>
                     <ComboBox x:Name="SessionCodecBox" Width="150" DockPanel.Dock="Left" SelectedIndex="0"
                               SelectionChanged="SessionCodec_Changed"
-                              ToolTip="Otomatis: H.264 hardware bila didukung (PC fisik), selain itu JPEG. JPEG: paling kompatibel.">
-                        <ComboBoxItem>Otomatis</ComboBoxItem>
-                        <ComboBoxItem>H.264 (hemat data)</ComboBoxItem>
-                        <ComboBoxItem>JPEG (kompatibel)</ComboBoxItem>
+                              ToolTip="{loc:Loc Session.CodecBoxTip}">
+                        <ComboBoxItem Content="{loc:Loc Session.CodecAuto}"/>
+                        <ComboBoxItem Content="{loc:Loc Session.CodecH264}"/>
+                        <ComboBoxItem Content="{loc:Loc Session.CodecJpeg}"/>
                     </ComboBox>
 
-                    <TextBlock DockPanel.Dock="Left" Text="Kualitas" Foreground="{StaticResource Muted}"
+                    <TextBlock DockPanel.Dock="Left" Text="{loc:Loc Session.QualityLabel}" Foreground="{DynamicResource Muted}"
                                VerticalAlignment="Center" Margin="16,0,6,0"
-                               ToolTip="Ketajaman gambar. Lebih tinggi = lebih jernih tapi lebih banyak data. Otomatis menyesuaikan bandwidth."/>
+                               ToolTip="{loc:Loc Session.QualityLabelTip}"/>
                     <ComboBox x:Name="SessionQualityBox" Width="130" DockPanel.Dock="Left" SelectedIndex="0"
                               SelectionChanged="SessionQuality_Changed"
-                              ToolTip="Ketajaman gambar. Lebih tinggi = lebih jernih tapi lebih banyak data.">
-                        <ComboBoxItem>Otomatis</ComboBoxItem>
-                        <ComboBoxItem>Maksimum</ComboBoxItem>
-                        <ComboBoxItem>Tinggi</ComboBoxItem>
-                        <ComboBoxItem>Normal</ComboBoxItem>
-                        <ComboBoxItem>Hemat data</ComboBoxItem>
+                              ToolTip="{loc:Loc Session.QualityBoxTip}">
+                        <ComboBoxItem Content="{loc:Loc Session.QualityAuto}"/>
+                        <ComboBoxItem Content="{loc:Loc Session.QualityMax}"/>
+                        <ComboBoxItem Content="{loc:Loc Session.QualityHigh}"/>
+                        <ComboBoxItem Content="{loc:Loc Session.QualityNormal}"/>
+                        <ComboBoxItem Content="{loc:Loc Session.QualityDataSaver}"/>
                     </ComboBox>
 
                     <Button Content="Ctrl+Alt+Del" Style="{StaticResource Ghost}" DockPanel.Dock="Left" Margin="16,0,0,0" Click="Cad_Click"/>
-                    <Button Content="Fullscreen" Style="{StaticResource Ghost}" DockPanel.Dock="Left" Margin="8,0,0,0" Click="Fullscreen_Click"/>
+                    <Button Content="{loc:Loc Session.Fullscreen}" Style="{StaticResource Ghost}" DockPanel.Dock="Left" Margin="8,0,0,0" Click="Fullscreen_Click"/>
 
-                    <Button Content="Disconnect" DockPanel.Dock="Right" Background="{StaticResource Bad}" Click="Disconnect_Click"/>
+                    <Button Content="{loc:Loc Common.Disconnect}" DockPanel.Dock="Right" Background="{DynamicResource Bad}" Click="Disconnect_Click"/>
                     <TextBlock x:Name="StatText" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,16,0"
-                               Foreground="{StaticResource Muted}" FontFamily="Cascadia Mono, Consolas" FontSize="12" Text="—"/>
+                               Foreground="{DynamicResource Muted}" FontFamily="Cascadia Mono, Consolas" FontSize="12" Text="—"/>
                 </DockPanel>
             </Border>
 
@@ -102,13 +103,13 @@
         <!-- connecting / status overlay: covers the surface until the first frame arrives -->
         <Border x:Name="Overlay" Background="#CC05060A">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="440">
-                <TextBlock Text="◆" FontSize="34" Foreground="{StaticResource Accent}"
+                <TextBlock Text="◆" FontSize="34" Foreground="{DynamicResource Accent}"
                            HorizontalAlignment="Center" Margin="0,0,0,14"/>
-                <TextBlock x:Name="OverlayTitle" Text="Menghubungkan…" FontSize="18" FontWeight="SemiBold"
+                <TextBlock x:Name="OverlayTitle" Text="{loc:Loc Session.Connecting}" FontSize="18" FontWeight="SemiBold"
                            HorizontalAlignment="Center"/>
-                <TextBlock x:Name="OverlayStatus" Foreground="{StaticResource Muted}" TextWrapping="Wrap"
+                <TextBlock x:Name="OverlayStatus" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"
                            TextAlignment="Center" Margin="0,10,0,0" MinHeight="18"/>
-                <Button x:Name="OverlayClose" Content="Tutup" Style="{StaticResource Ghost}" Visibility="Collapsed"
+                <Button x:Name="OverlayClose" Content="{loc:Loc Common.Close}" Style="{StaticResource Ghost}" Visibility="Collapsed"
                         HorizontalAlignment="Center" Margin="0,18,0,0" Padding="16,8" Click="OverlayClose_Click"/>
             </StackPanel>
         </Border>

@@ -47,6 +47,11 @@ public partial class App : Application
         // log and keep the session alive where we safely can.
         DispatcherUnhandledException += OnUnhandledException;
 
+        // Apply the saved UI theme + language before any window is shown.
+        var cfg = Services.ClientConfig.Shared;
+        Services.ThemeManager.Init(Services.ThemeManager.Parse(cfg.Theme));
+        Services.Loc.Init(cfg.Language);
+
         // The window is created here (not via StartupUri) so the headless self-test above can skip it.
         new Views.MainWindow().Show();
     }
