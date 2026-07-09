@@ -213,6 +213,8 @@
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
                                 <Setter TargetName="b" Property="Background" Value="{DynamicResource AccentGrad}"/>
+                                <!-- WHITE on the blue highlight — Fg would be dark (invisible) in light theme. -->
+                                <Setter Property="Foreground" Value="White"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

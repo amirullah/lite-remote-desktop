@@ -128,6 +128,6 @@ public static class ThemeManager
         // Deeper blue in light mode so WHITE button text stays clearly readable (a bright accent + white
         // text is low-contrast). Dark theme keeps the lighter accent (it pops against a dark background).
         Accent: C("#1A64DC"), Accent2: C("#2E7DE8"), GhostBg: C("#51648A"), GhostBorder: C("#C7D3E7"),
-        DisabledBg: C("#DCE3EF"), DisabledBorder: C("#CBD6E7"), DisabledFg: C("#8A98B0"),
+        DisabledBg: C("#C9D3E4"), DisabledBorder: C("#B7C4DA"), DisabledFg: C("#5E6C86"),
         AppBg0: C("#F4F7FC"), AppBg1: C("#E8EEF8"));
 }
