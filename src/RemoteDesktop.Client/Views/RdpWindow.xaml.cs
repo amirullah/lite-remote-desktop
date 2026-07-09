@@ -39,6 +39,7 @@ public partial class RdpWindow : Window
     private ResizeMode _prevResize = ResizeMode.CanResize;
     private Rect _prevBounds;   // windowed position/size, restored when leaving fullscreen
     private Window? _bar;   // auto-hide session toolbar shown on top-edge hover in fullscreen
+    private System.Windows.Controls.StackPanel? _barSwitch;   // switch-to-other-session buttons inside _bar
     private readonly DispatcherTimer _hover = new() { Interval = TimeSpan.FromMilliseconds(120) };
 
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT p);
@@ -74,8 +75,17 @@ public partial class RdpWindow : Window
         _hover.Tick += Hover_Tick;
         SizeChanged += (_, _) => { _resize.Stop(); _resize.Start(); };   // debounce window resizes
         Loaded += OnLoaded;
+
+        // Register as a live session so OTHER windows can switch to this one, and keep our own switch
+        // buttons current as sessions open/close.
+        SessionRegistry.Register(this, SessionLabel, "RDP");
+        SessionRegistry.Changed += OnSessionsChanged;
+        RefreshSwitch();
+
         Closed += (_, _) =>
         {
+            SessionRegistry.Changed -= OnSessionsChanged;
+            SessionRegistry.Unregister(this);
             _poll.Stop(); _hover.Stop(); _watchdog.Stop();
             try { _bar?.Close(); } catch { }
             try { if (_rdpReady && _rdp.IsConnected) _rdp.Ocx.Disconnect(); } catch { /* control tearing down */ }
@@ -613,6 +623,7 @@ public partial class RdpWindow : Window
     private void ShowBar(Point topLeftPhysical)
     {
         EnsureBar();
+        RefreshBarSwitch();   // keep the switch buttons current each time the bar appears
         var (dx, dy) = DpiScale();
         _bar!.Left = topLeftPhysical.X / dx;
         _bar.Top = topLeftPhysical.Y / dy;
@@ -636,6 +647,10 @@ public partial class RdpWindow : Window
         };
         System.Windows.Controls.DockPanel.SetDock(hostLbl, System.Windows.Controls.Dock.Left);
 
+        _barSwitch = new System.Windows.Controls.StackPanel
+        { Orientation = System.Windows.Controls.Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        System.Windows.Controls.DockPanel.SetDock(_barSwitch, System.Windows.Controls.Dock.Left);
+
         var exit = MakeBarButton(Loc.T("Rdp.Bar.ExitFullscreen"), ThemeBrush("Accent"));
         exit.Click += (_, _) => ToggleFullscreen();
         System.Windows.Controls.DockPanel.SetDock(exit, System.Windows.Controls.Dock.Right);
@@ -645,6 +660,7 @@ public partial class RdpWindow : Window
         System.Windows.Controls.DockPanel.SetDock(disc, System.Windows.Controls.Dock.Right);
 
         dock.Children.Add(hostLbl);
+        dock.Children.Add(_barSwitch);
         dock.Children.Add(disc);
         dock.Children.Add(exit);
 
@@ -666,6 +682,64 @@ public partial class RdpWindow : Window
             Foreground = System.Windows.Media.Brushes.White, BorderThickness = new Thickness(0),
             Background = brush, VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.SemiBold,
         };
+    }
+
+    // ---- switch to another live session (RDP or protocol), incl. from fullscreen ----
+
+    /// <summary>Short label for THIS session shown in other windows' switchers (name → host → "RDP").</summary>
+    private string SessionLabel()
+    {
+        var n = (_directLabel ?? "").Trim();
+        if (n.Length > 0) return n;
+        var h = HostBox.Text.Trim();
+        return h.Length > 0 ? h : "RDP";
+    }
+
+    private void OnSessionsChanged() => Dispatcher.BeginInvoke(new Action(() =>
+    {
+        RefreshSwitch();
+        if (_bar is { IsVisible: true }) RefreshBarSwitch();
+    }));
+
+    /// <summary>Rebuild the windowed top-bar switch buttons — one per OTHER live session.</summary>
+    private void RefreshSwitch()
+    {
+        if (SwitchPanel == null) return;
+        SwitchPanel.Children.Clear();
+        foreach (var e in SessionRegistry.Others(this))
+        {
+            var target = e.Window;
+            var b = new System.Windows.Controls.Button
+            {
+                Content = SwitchText(e), Style = (Style)FindResource("Ghost"),
+                Margin = new Thickness(8, 0, 0, 0), Padding = new Thickness(12, 6, 12, 6), FontSize = 12,
+                ToolTip = Loc.F("Rdp.SwitchTip", e.Label()),
+            };
+            b.Click += (_, _) => SessionRegistry.Activate(target);
+            SwitchPanel.Children.Add(b);
+        }
+    }
+
+    /// <summary>Rebuild the fullscreen hover-bar switch buttons.</summary>
+    private void RefreshBarSwitch()
+    {
+        if (_barSwitch == null) return;
+        _barSwitch.Children.Clear();
+        foreach (var e in SessionRegistry.Others(this))
+        {
+            var target = e.Window;
+            var b = MakeBarButton(SwitchText(e), ThemeBrush("GhostBg"));
+            b.ToolTip = Loc.F("Rdp.SwitchTip", e.Label());
+            b.Click += (_, _) => { HideBar(); SessionRegistry.Activate(target); };
+            _barSwitch.Children.Add(b);
+        }
+    }
+
+    private static string SwitchText(SessionRegistry.Entry e)
+    {
+        var s = e.Label();
+        if (s.Length > 22) s = s.Substring(0, 21) + "…";
+        return (e.Kind == "RDP" ? "🖥 " : "◆ ") + s;
     }
 
     /// <summary>

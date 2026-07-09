@@ -71,6 +71,43 @@ public partial class SessionWindow : Window
         Title = "LiteRemote — " + request.Descriptor.DisplayName;
         Loaded += OnLoaded;
         Closing += (_, _) => Cleanup();
+
+        // Register as a live session so other windows can switch to this one, and keep our own switch
+        // buttons current as sessions open/close.
+        SessionRegistry.Register(this, SessionLabel, "LR");
+        SessionRegistry.Changed += OnSessionsChanged;
+        RefreshSwitch();
+    }
+
+    private string SessionLabel()
+    {
+        var n = _request.Descriptor.DisplayName;
+        if (!string.IsNullOrWhiteSpace(n)) return n;
+        return _request.IdMode ? _request.Id : _request.Host;
+    }
+
+    private void OnSessionsChanged() => Dispatcher.BeginInvoke(new Action(RefreshSwitch));
+
+    /// <summary>Rebuild the toolbar switch buttons — one per OTHER live session (RDP + protocol).</summary>
+    private void RefreshSwitch()
+    {
+        if (SwitchPanel == null) return;
+        SwitchPanel.Children.Clear();
+        foreach (var e in SessionRegistry.Others(this))
+        {
+            var target = e.Window;
+            var label = e.Label();
+            if (label.Length > 22) label = label.Substring(0, 21) + "…";
+            var b = new Button
+            {
+                Content = (e.Kind == "RDP" ? "🖥 " : "◆ ") + label,
+                Style = (Style)FindResource("Ghost"),
+                Margin = new Thickness(8, 0, 0, 0), Padding = new Thickness(12, 6, 12, 6), FontSize = 12,
+                ToolTip = Loc.F("Rdp.SwitchTip", e.Label()),
+            };
+            b.Click += (_, _) => SessionRegistry.Activate(target);
+            SwitchPanel.Children.Add(b);
+        }
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -370,6 +407,8 @@ public partial class SessionWindow : Window
 
     private async void Cleanup()
     {
+        SessionRegistry.Changed -= OnSessionsChanged;
+        SessionRegistry.Unregister(this);
         if (_clipboard != null) _clipboard.ClipboardChanged -= OnLocalClipboardChanged;
         _input?.Detach();
         _input = null;

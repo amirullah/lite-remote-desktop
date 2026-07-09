@@ -16,6 +16,8 @@
                      hands-off connect from the main form / Recent, without hiding the session controls. -->
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <!-- one button per OTHER live session (RDP + protocol) — filled from code -->
+                        <StackPanel x:Name="SwitchPanel" Orientation="Horizontal" VerticalAlignment="Center"/>
                         <Button x:Name="RetryBtn" Content="{loc:Loc Rdp.Retry}" Visibility="Collapsed" Margin="8,0,0,0" Padding="16,6" Click="Retry_Click"/>
                         <Button x:Name="DisconnectBtn" Content="{loc:Loc Common.Disconnect}" Style="{StaticResource Danger}" Margin="8,0,0,0" Padding="14,6" Click="Disconnect_Click" IsEnabled="False"/>
                         <Button x:Name="FullscreenBtn" Content="⛶" Style="{StaticResource Ghost}" Margin="8,0,0,0" Padding="11,6" FontSize="14" Click="Fullscreen_Click"
