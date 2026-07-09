@@ -1,0 +1,80 @@
+<Window x:Class="RemoteDesktop.Client.Views.SessionEditWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Edit sesi tersimpan" Width="480" SizeToContent="Height"
+        Icon="/Assets/literemote.ico" ResizeMode="NoResize"
+        Background="{StaticResource AppBg}" WindowStartupLocation="CenterOwner"
+        UseLayoutRounding="True"
+        FontFamily="Segoe UI Variable, Segoe UI"
+        TextOptions.TextRenderingMode="ClearType" TextOptions.TextFormattingMode="Display">
+    <Border Margin="18" Background="{StaticResource Panel}" CornerRadius="14" Padding="20"
+            BorderBrush="{StaticResource Stroke}" BorderThickness="1">
+        <StackPanel>
+            <!-- header -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                <Border CornerRadius="4" Padding="6,1" Margin="0,0,8,0" Background="{StaticResource Accent}" VerticalAlignment="Center">
+                    <TextBlock x:Name="KindText" Text="?" FontSize="10" FontWeight="Bold" Foreground="White"/>
+                </Border>
+                <TextBlock Text="Edit sesi tersimpan" FontSize="17" FontWeight="Bold" VerticalAlignment="Center"/>
+            </StackPanel>
+            <TextBlock x:Name="AddrText" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,0,0,14"/>
+
+            <TextBlock Text="NAMA (opsional)" Style="{StaticResource Label}"/>
+            <TextBox x:Name="LabelBox" Margin="0,0,0,12"/>
+
+            <!-- account credentials -->
+            <StackPanel x:Name="UserRow">
+                <TextBlock x:Name="UserLabel" Text="WINDOWS USER" Style="{StaticResource Label}"/>
+                <TextBox x:Name="UserBox" Margin="0,0,0,12"/>
+            </StackPanel>
+            <StackPanel x:Name="PassRow">
+                <TextBlock x:Name="PassLabel" Text="WINDOWS PASSWORD" Style="{StaticResource Label}"/>
+                <PasswordBox x:Name="PassBox" Margin="0,0,0,12"/>
+            </StackPanel>
+            <TextBlock x:Name="GoogleNote" Visibility="Collapsed" TextWrapping="Wrap"
+                       Foreground="{StaticResource Muted}" FontSize="11.5" Margin="0,0,0,12"
+                       Text="Sesi ini login dengan akun Google — tidak ada password yang tersimpan."/>
+
+            <!-- VPN -->
+            <CheckBox x:Name="UseVpnCheck" Content="Pakai VPN (OpenVPN, split-tunnel)" Margin="0,2,0,0" Click="UseVpn_Click"/>
+            <StackPanel x:Name="VpnPanel" Margin="0,10,0,0" Visibility="Collapsed">
+                <TextBlock Text="PROFIL .OVPN" Style="{StaticResource Label}"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="VpnProfileBox" Grid.Column="0" IsReadOnly="True"/>
+                    <Button Grid.Column="1" Content="Pilih…" Style="{StaticResource Ghost}" Margin="8,0,0,0" Click="BrowseVpn_Click"/>
+                </Grid>
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="VPN USER" Style="{StaticResource Label}"/>
+                        <TextBox x:Name="VpnUserBox"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="VPN PASSWORD" Style="{StaticResource Label}"/>
+                        <PasswordBox x:Name="VpnPassBox"/>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+
+            <CheckBox x:Name="SavePassCheck" Margin="0,14,0,0"
+                      Content="Simpan password (DPAPI — akun Windows ini)"/>
+
+            <TextBlock x:Name="StatusText" Foreground="{StaticResource Bad}" TextWrapping="Wrap"
+                       Margin="0,10,0,0" MinHeight="0"/>
+
+            <!-- actions -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+                <Button Content="Batal" Style="{StaticResource Ghost}" Padding="16,9" Click="Cancel_Click"/>
+                <Button Content="Simpan" Margin="10,0,0,0" Padding="18,9" Click="Save_Click"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

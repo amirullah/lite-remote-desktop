@@ -57,6 +57,14 @@ public partial class MainWindow : Window
         if ((sender as FrameworkElement)?.Tag is SavedSession s) { _config.DeleteSession(s.Id); RefreshRecent(); }
     }
 
+    /// <summary>Open the editor for a saved session (remote account + VPN user/password).</summary>
+    private void RecentEdit_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not SavedSession s) return;
+        var dlg = new SessionEditWindow(s, _config) { Owner = this };
+        if (dlg.ShowDialog() == true) RefreshRecent();
+    }
+
     /// <summary>
     /// One-click reconnect from the Recent list. RDP and any session with a remembered password connect
     /// straight away; a protocol session without a saved password prefills the form and asks for it.
@@ -182,13 +190,14 @@ public partial class MainWindow : Window
             }
             else
             {
-                // Fill once, connect directly: hand the Windows credentials (and an optional VPN profile
-                // from Advanced) straight to the RDP window, which connects without showing its own form.
+                // Fill once, connect directly: hand the Windows credentials AND the VPN profile+user+pass
+                // (from Advanced) straight to the RDP window, which connects without showing its own form.
                 string? vpnPath = null;
                 if (NetworkModeBox.SelectedIndex == 1 &&
                     !string.IsNullOrWhiteSpace(VpnProfileBox.Text) && System.IO.File.Exists(VpnProfileBox.Text))
                     vpnPath = VpnProfileBox.Text;
-                win.ApplyDirect(RdpUserBox.Text, RdpPassBox.Password, RdpSaveCheck.IsChecked == true, vpnPath);
+                win.ApplyDirect(RdpUserBox.Text, RdpPassBox.Password, RdpSaveCheck.IsChecked == true,
+                                vpnPath, VpnUserBox.Text, VpnPassBox.Password);
             }
             win.Closed += (_, _) => RefreshRecent();
             win.Show();

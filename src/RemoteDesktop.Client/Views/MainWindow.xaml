@@ -49,9 +49,12 @@
                                                 </StackPanel>
                                             </StackPanel>
                                         </Button>
-                                        <Button Style="{StaticResource Ghost}" Content="✕" Padding="7,2" FontSize="11"
-                                                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,6,0"
-                                                Tag="{Binding}" Click="RecentDelete_Click" ToolTip="Hapus dari daftar"/>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,6,0">
+                                            <Button Style="{StaticResource Ghost}" Content="✎" Padding="7,2" FontSize="11"
+                                                    Tag="{Binding}" Click="RecentEdit_Click" ToolTip="Edit akun / VPN"/>
+                                            <Button Style="{StaticResource Ghost}" Content="✕" Padding="7,2" FontSize="11" Margin="4,0,0,0"
+                                                    Tag="{Binding}" Click="RecentDelete_Click" ToolTip="Hapus dari daftar"/>
+                                        </StackPanel>
                                     </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
@@ -206,9 +209,28 @@
                                     <ComboBoxItem>Direct internet / LAN</ComboBoxItem>
                                     <ComboBoxItem>Through VPN profile (this app only)</ComboBoxItem>
                                 </ComboBox>
-                                <StackPanel x:Name="VpnArea" Orientation="Horizontal" Margin="0,8,0,0" Visibility="Collapsed">
-                                    <TextBox x:Name="VpnProfileBox" Width="300" IsReadOnly="True" Text="(no .ovpn profile selected)"/>
-                                    <Button Content="Browse…" Style="{StaticResource Ghost}" Margin="8,0,0,0" Click="BrowseVpn_Click"/>
+                                <StackPanel x:Name="VpnArea" Margin="0,8,0,0" Visibility="Collapsed">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBox x:Name="VpnProfileBox" Width="300" IsReadOnly="True" Text="(no .ovpn profile selected)"/>
+                                        <Button Content="Browse…" Style="{StaticResource Ghost}" Margin="8,0,0,0" Click="BrowseVpn_Click"/>
+                                    </StackPanel>
+                                    <Grid Margin="0,8,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="12"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="VPN USER" Style="{StaticResource Label}"/>
+                                            <TextBox x:Name="VpnUserBox"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="VPN PASSWORD" Style="{StaticResource Label}"/>
+                                            <PasswordBox x:Name="VpnPassBox"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <TextBlock Text="VPN user/password dipakai untuk Windows RDP di balik OpenVPN (split-tunnel). Diisi di sini agar tak perlu diketik lagi di jendela RDP."
+                                               Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="2,6,0,0"/>
                                 </StackPanel>
 
                                 <WrapPanel Margin="0,16,0,0">

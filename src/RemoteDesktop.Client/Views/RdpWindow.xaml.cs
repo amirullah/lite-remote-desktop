@@ -115,10 +115,7 @@ public partial class RdpWindow : Window
         if (string.IsNullOrWhiteSpace(UserBox.Text)) UserBox.Focus(); else PassBox.Focus();
 
         if (_autoConnect)   // one-click reconnect / one-form direct connect
-        {
-            if (_directMode) _watchdog.Start();   // reveal the bar if this doesn't come up
             Dispatcher.BeginInvoke(new Action(() => Connect_Click(this, new RoutedEventArgs())), DispatcherPriority.ApplicationIdle);
-        }
     }
 
     /// <summary>Prefill this window from a saved RDP session and auto-connect once ready (one-click reconnect).</summary>
@@ -135,17 +132,20 @@ public partial class RdpWindow : Window
         }
         LoadSavedRdpCreds();   // fill user/password from the saved secret for this host
 
-        // Only go hands-off when we actually have a password. Without one, auto-connecting would just
-        // blank-fail behind a hidden bar; show the prefilled form and let the user type it instead.
-        if (PassBox.Password.Length > 0)
+        // Only go hands-off when we have EVERYTHING needed: the Windows password, and (if this target is
+        // behind VPN) the VPN user+password too. Otherwise auto-connecting would hide the form then
+        // immediately re-show it with an error — show the prefilled form and let the user finish instead.
+        bool haveRdpPwd = PassBox.Password.Length > 0;
+        bool vpnReady = !hasVpn || (VpnUserBox.Text.Trim().Length > 0 && VpnPassBox.Password.Length > 0);
+        if (haveRdpPwd && vpnReady)
         {
             BeginDirect(hasVpn);
         }
         else
         {
             if (hasVpn) VpnExpander.IsExpanded = true;
-            PassBox.Focus();
-            Status("Masukkan password Windows lalu tekan Hubungkan.");
+            if (!haveRdpPwd) { PassBox.Focus(); Status("Masukkan password Windows lalu tekan Hubungkan."); }
+            else { VpnPassBox.Focus(); Status("Isi VPN user & password lalu tekan Hubungkan."); }
         }
     }
 
@@ -153,42 +153,39 @@ public partial class RdpWindow : Window
     /// Connect straight from the main connect form: fill the Windows credentials (and optional VPN
     /// profile) the hub collected, then connect without showing this window's own login form.
     /// </summary>
-    public void ApplyDirect(string? user, string? password, bool remember, string? vpnProfilePath = null)
+    public void ApplyDirect(string? user, string? password, bool remember,
+                            string? vpnProfilePath = null, string? vpnUser = null, string? vpnPass = null)
     {
         if (!string.IsNullOrWhiteSpace(user)) UserBox.Text = user.Trim();
         if (password != null) PassBox.Password = password;
-        if (SaveCredsCheck != null) SaveCredsCheck.IsChecked = remember;
 
         bool hasVpn = !string.IsNullOrWhiteSpace(vpnProfilePath);
         if (hasVpn)
         {
             VpnBox.Text = vpnProfilePath!.Trim();
-            LoadSavedVpnPass(vpnProfilePath!.Trim());   // reuse a remembered VPN password if there is one
+            if (!string.IsNullOrWhiteSpace(vpnUser)) VpnUserBox.Text = vpnUser.Trim();
+            if (!string.IsNullOrEmpty(vpnPass)) VpnPassBox.Password = vpnPass;
+            LoadSavedVpnPass(vpnProfilePath!.Trim());   // fill a remembered VPN password if none was passed
         }
+        // Apply the remember choice AFTER VpnBox.Text (whose TextChanged→LoadSavedVpnPass may force-check
+        // it), so the user's explicit choice from the main form wins.
+        if (SaveCredsCheck != null) SaveCredsCheck.IsChecked = remember;
         BeginDirect(hasVpn);
     }
 
     /// <summary>
-    /// Arrange a hands-off connect. Without VPN the connect bar is hidden and we auto-connect. With VPN
-    /// the bar stays visible &amp; expanded (the tunnel may still need its user/password), but we still
-    /// auto-fire — if VPN creds are missing, Connect_Click reports it with the bar in view.
+    /// Arrange a hands-off connect: hide THIS window's connect inputs entirely (everything was entered on
+    /// the main form) and auto-connect. Disconnect/Fullscreen stay in the always-visible action strip; a
+    /// watchdog (started once RDP begins negotiating) reveals the inputs again if the connect fails.
     /// </summary>
     private void BeginDirect(bool hasVpn)
     {
         _autoConnect = true;
-        if (hasVpn)
-        {
-            VpnExpander.IsExpanded = true;
-        }
-        else
-        {
-            VpnBox.Text = string.Empty;   // guarantee no phantom-VPN gate diverts a plain RDP connect
-            _directMode = true;
-            // Hide only the connect inputs — Disconnect/Fullscreen stay in the always-visible action strip.
-            ConnectFields.Visibility = Visibility.Collapsed;
-            VpnExpander.Visibility = Visibility.Collapsed;
-            Status("Menghubungkan RDP…");
-        }
+        _directMode = true;
+        if (!hasVpn) VpnBox.Text = string.Empty;   // guarantee no phantom-VPN gate diverts a plain connect
+        ConnectFields.Visibility = Visibility.Collapsed;
+        VpnExpander.Visibility = Visibility.Collapsed;
+        Status(hasVpn ? "Menyalakan VPN & menghubungkan RDP…" : "Menghubungkan RDP…");
     }
 
     /// <summary>Bring the connect inputs back (e.g. a hands-off connect failed) so the user can fix things.</summary>
@@ -198,6 +195,7 @@ public partial class RdpWindow : Window
         _watchdog.Stop();
         ConnectFields.Visibility = Visibility.Visible;
         VpnExpander.Visibility = Visibility.Visible;
+        if (VpnBox.Text.Trim().Length > 0) VpnExpander.IsExpanded = true;  // surface VPN fields to fix
         ConnectBtn.IsEnabled = true;
         DisconnectBtn.IsEnabled = false;
         Status(msg);
@@ -252,15 +250,13 @@ public partial class RdpWindow : Window
                 RememberVpn(vpn);
                 if (!SplitTunnelVpn.EngineAvailable)
                 {
-                    Status("Mesin VPN belum ada di build ini. Install ulang LiteRemote (versi ber-VPN), " +
-                           "atau nyalakan VPN manual lalu tekan Hubungkan.");
-                    ConnectBtn.IsEnabled = true;
+                    RevealForm("Mesin VPN belum ada di build ini. Install ulang LiteRemote (versi ber-VPN), " +
+                               "atau nyalakan VPN manual lalu tekan Hubungkan.");
                     return;
                 }
                 if (VpnUserBox.Text.Trim().Length == 0 || VpnPassBox.Password.Length == 0)
                 {
-                    Status("Isi VPN user & VPN pass dulu untuk menyalakan tunnel.");
-                    ConnectBtn.IsEnabled = true;
+                    RevealForm("Isi VPN user & VPN pass dulu untuk menyalakan tunnel.");
                     return;
                 }
 
@@ -268,12 +264,11 @@ public partial class RdpWindow : Window
                 await DisposeVpnAsync();
                 _vpn = new SplitTunnelVpn();
                 bool up = await _vpn.ConnectAsync(vpn, VpnUserBox.Text.Trim(), VpnPassBox.Password, host, Status, CancellationToken.None);
-                if (!up) { await DisposeVpnAsync(); ConnectBtn.IsEnabled = true; return; }
+                if (!up) { await DisposeVpnAsync(); RevealForm("Gagal menyalakan VPN — periksa profil, VPN user & VPN pass."); return; }
 
                 if (!await WaitReachableAsync(host, port, TimeSpan.FromSeconds(15)))
                 {
-                    Status($"VPN tersambung, tapi {host}:{port} belum terjangkau — cek IP host / RDP aktif di sana.");
-                    ConnectBtn.IsEnabled = true;
+                    RevealForm($"VPN tersambung, tapi {host}:{port} belum terjangkau — cek IP host / RDP aktif di sana.");
                     return;
                 }
             }
@@ -284,9 +279,7 @@ public partial class RdpWindow : Window
         }
         catch (Exception ex)
         {
-            Status("Gagal memulai RDP: " + ex.Message);
-            ConnectBtn.IsEnabled = true;
-            DisconnectBtn.IsEnabled = false;
+            RevealForm("Gagal memulai RDP: " + ex.Message);
         }
     }
 
@@ -315,6 +308,9 @@ public partial class RdpWindow : Window
         Status($"Menghubungkan RDP ke {host}:{port} …");
         ConnectBtn.IsEnabled = false;
         DisconnectBtn.IsEnabled = true;
+        // Now that RDP is actually negotiating, arm the reveal-the-form watchdog for a hands-off connect.
+        // (Started here, not in OnLoaded, so a slow VPN bring-up beforehand can't trip a false failure.)
+        if (_directMode) _watchdog.Start();
     }
 
     // --- DPI-aware sizing helpers (the RDP control wants device pixels; WPF ActualWidth is in DIPs) ---

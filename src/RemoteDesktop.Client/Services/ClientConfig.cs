@@ -90,7 +90,14 @@ public sealed class ClientConfig
         return v;
     }
 
-    public void DeleteVpn(string id) { VpnProfiles.RemoveAll(x => x.Id == id); Secrets.Remove("vpn:" + id); Save(); }
+    public void DeleteVpn(string id)
+    {
+        // VPN passwords are keyed by the profile PATH (how RdpWindow/SessionEditWindow store them), not Id.
+        var v = VpnProfiles.FirstOrDefault(x => x.Id == id);
+        if (v != null) Secrets.Remove("vpn:" + v.OvpnPath);
+        VpnProfiles.RemoveAll(x => x.Id == id);
+        Save();
+    }
 
     /// <summary>
     /// One-time upgrade of the pre-unified store (Recent + rdp:/vpn: path-keyed secrets) into the new

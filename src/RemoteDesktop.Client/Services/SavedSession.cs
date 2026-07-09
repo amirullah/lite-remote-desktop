@@ -10,7 +10,7 @@ public enum ProtocolAuth : byte { Password = 0, Google = 1 }
 
 /// <summary>
 /// A saved OpenVPN profile the user can attach to any session. The password (if remembered) lives in
-/// <see cref="ClientConfig.Secrets"/> under key <c>vpn:&lt;Id&gt;</c> — never in this record.
+/// <see cref="ClientConfig.Secrets"/> under key <c>vpn:&lt;OvpnPath&gt;</c> — never in this record.
 /// </summary>
 public sealed record VpnProfile
 {
