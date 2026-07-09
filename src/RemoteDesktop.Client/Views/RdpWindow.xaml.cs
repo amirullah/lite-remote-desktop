@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -30,6 +31,11 @@ public partial class RdpWindow : Window
     private WindowState _prevState = WindowState.Normal;
     private WindowStyle _prevStyle = WindowStyle.SingleBorderWindow;
     private ResizeMode _prevResize = ResizeMode.CanResize;
+    private Window? _bar;   // auto-hide session toolbar shown on top-edge hover in fullscreen
+    private readonly DispatcherTimer _hover = new() { Interval = TimeSpan.FromMilliseconds(120) };
+
+    [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT p);
+    [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X, Y; }
 
     public RdpWindow(string host, string? user = null)
     {
@@ -47,11 +53,13 @@ public partial class RdpWindow : Window
 
         _poll.Tick += (_, _) => UpdateConnectionState();
         _resize.Tick += (_, _) => { _resize.Stop(); ApplyRemoteSize(); };
+        _hover.Tick += Hover_Tick;
         SizeChanged += (_, _) => { _resize.Stop(); _resize.Start(); };   // debounce window resizes
         Loaded += OnLoaded;
         Closed += (_, _) =>
         {
-            _poll.Stop();
+            _poll.Stop(); _hover.Stop();
+            try { _bar?.Close(); } catch { }
             try { if (_rdpReady && _rdp.IsConnected) _rdp.Ocx.Disconnect(); } catch { /* control tearing down */ }
             _ = DisposeVpnAsync();   // tear the split tunnel down (SIGTERM) so it doesn't linger
         };
@@ -373,16 +381,90 @@ public partial class RdpWindow : Window
             if (WindowState == WindowState.Maximized) WindowState = WindowState.Normal; // force a real resize
             WindowState = WindowState.Maximized;
             _fullscreen = true;
-            Status("Layar penuh — F11 atau Esc untuk keluar.");
+            _hover.Start();   // reveal the overlay toolbar on top-edge hover (Esc/F11 are eaten by RDP)
+            Status("Layar penuh — arahkan mouse ke tepi ATAS untuk toolbar (keluar / putus).");
         }
         else
         {
+            _hover.Stop(); HideBar();
             TopBar.Visibility = Visibility.Visible;
             WindowStyle = _prevStyle;
             ResizeMode = _prevResize;
             WindowState = _prevState;
             _fullscreen = false;
+            Status(_rdp.IsConnected ? "Terhubung." : "Isi Host + User + Password Windows, lalu tekan Hubungkan.");
         }
+    }
+
+    // ---- Auto-hide overlay toolbar (mstsc connection-bar style) ----
+    // Polls the physical cursor (works even while the RDP control has mouse/keyboard capture). When the
+    // cursor touches the top edge in fullscreen, a separate top-most window slides in over the remote
+    // surface (a separate HWND, so no WPF/WinForms airspace issue and no resize of the RDP session).
+    private void Hover_Tick(object? sender, EventArgs e)
+    {
+        if (!_fullscreen) { HideBar(); return; }
+        if (!GetCursorPos(out var c)) return;
+        var tl = PointToScreen(new Point(0, 0));           // window top-left in physical pixels
+        double barH = 44 * DpiScale().sy;
+        bool nearTop = c.Y <= tl.Y + 2;
+        bool overBar = _bar is { IsVisible: true } && c.Y <= tl.Y + barH + 6;
+        if (nearTop || overBar) ShowBar(tl); else HideBar();
+    }
+
+    private void ShowBar(Point topLeftPhysical)
+    {
+        EnsureBar();
+        var (dx, dy) = DpiScale();
+        _bar!.Left = topLeftPhysical.X / dx;
+        _bar.Top = topLeftPhysical.Y / dy;
+        _bar.Width = ActualWidth;
+        if (!_bar.IsVisible) _bar.Show();
+    }
+
+    private void HideBar() { try { if (_bar?.IsVisible == true) _bar.Hide(); } catch { } }
+
+    private void EnsureBar()
+    {
+        if (_bar != null) return;
+        var bg = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x12, 0x2A, 0x4D));
+        var dock = new System.Windows.Controls.DockPanel { Background = bg, LastChildFill = false };
+
+        var hostLbl = new System.Windows.Controls.TextBlock
+        {
+            Text = "  🖥  " + HostBox.Text.Trim() + "     (layar penuh)",
+            Foreground = System.Windows.Media.Brushes.White, FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0),
+        };
+        System.Windows.Controls.DockPanel.SetDock(hostLbl, System.Windows.Controls.Dock.Left);
+
+        var exit = MakeBarButton("⤢  Keluar layar penuh", "#2D7DF6");
+        exit.Click += (_, _) => ToggleFullscreen();
+        System.Windows.Controls.DockPanel.SetDock(exit, System.Windows.Controls.Dock.Right);
+
+        var disc = MakeBarButton("Putus", "#C0453B");
+        disc.Click += (_, _) => { Disconnect_Click(this, new RoutedEventArgs()); ToggleFullscreen(); };
+        System.Windows.Controls.DockPanel.SetDock(disc, System.Windows.Controls.Dock.Right);
+
+        dock.Children.Add(hostLbl);
+        dock.Children.Add(disc);
+        dock.Children.Add(exit);
+
+        _bar = new Window
+        {
+            WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowActivated = false,
+            Topmost = true, ShowInTaskbar = false, Height = 44, Content = dock, Owner = this, Background = bg,
+        };
+    }
+
+    private static System.Windows.Controls.Button MakeBarButton(string text, string hex)
+    {
+        var brush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString(hex)!;
+        return new System.Windows.Controls.Button
+        {
+            Content = text, Margin = new Thickness(8, 6, 8, 6), Padding = new Thickness(14, 4, 14, 4),
+            Foreground = System.Windows.Media.Brushes.White, BorderThickness = new Thickness(0),
+            Background = brush, VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.SemiBold,
+        };
     }
 
     /// <summary>
