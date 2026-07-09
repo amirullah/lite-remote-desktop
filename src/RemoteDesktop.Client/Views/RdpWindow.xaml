@@ -5,6 +5,7 @@
         xmlns:wfi="clr-namespace:System.Windows.Forms.Integration;assembly=WindowsFormsIntegration"
         Title="{loc:Loc Rdp.WindowTitle}" Height="820" Width="1240"
         WindowStartupLocation="CenterScreen" Background="{DynamicResource Bg}"
+        Foreground="{DynamicResource Fg}"
         Icon="/Assets/literemote.ico" KeyDown="Window_KeyDown">
     <DockPanel>
         <!-- ===== Top bar: connect fields + session actions (hidden in fullscreen) ===== -->

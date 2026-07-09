@@ -31,8 +31,12 @@
         </LinearGradientBrush>
 
         <!-- ============ text ============ -->
+        <!-- NOTE: no Foreground here. An implicit TextBlock Foreground bleeds into ContentPresenter-
+             generated button text and OVERRIDES the button's own Foreground (so a white-labelled button
+             would render its text in Fg — dark, invisible, in light mode). The default text colour is set
+             once at each Window root (Foreground="{DynamicResource Fg}") and INHERITED instead, so buttons
+             keep their white text and plain TextBlocks still follow the theme. -->
         <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{DynamicResource Fg}"/>
             <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
             <!-- Display snaps glyph advances to whole device pixels — crisp small UI text.
                  Ideal (the old value) uses fractional print metrics that look soft at 11-14px. -->

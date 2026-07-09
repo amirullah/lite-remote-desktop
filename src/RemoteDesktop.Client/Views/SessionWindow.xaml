@@ -6,6 +6,7 @@
         Icon="/Assets/literemote.ico"
         Background="#05060A" WindowStartupLocation="CenterScreen"
         UseLayoutRounding="True"
+        Foreground="{DynamicResource Fg}"
         FontFamily="Segoe UI Variable, Segoe UI"
         TextOptions.TextRenderingMode="ClearType" TextOptions.TextFormattingMode="Display">
 
@@ -105,8 +106,10 @@
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="440">
                 <TextBlock Text="◆" FontSize="34" Foreground="{DynamicResource Accent}"
                            HorizontalAlignment="Center" Margin="0,0,0,14"/>
+                <!-- The overlay sits on a permanently-dark scrim (#CC05060A), so its title must stay light
+                     regardless of theme — Fg would go dark (invisible) in light mode. -->
                 <TextBlock x:Name="OverlayTitle" Text="{loc:Loc Session.Connecting}" FontSize="18" FontWeight="SemiBold"
-                           HorizontalAlignment="Center"/>
+                           Foreground="White" HorizontalAlignment="Center"/>
                 <TextBlock x:Name="OverlayStatus" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"
                            TextAlignment="Center" Margin="0,10,0,0" MinHeight="18"/>
                 <Button x:Name="OverlayClose" Content="{loc:Loc Common.Close}" Style="{StaticResource Ghost}" Visibility="Collapsed"

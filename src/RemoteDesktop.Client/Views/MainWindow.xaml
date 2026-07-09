@@ -6,6 +6,7 @@
         Icon="/Assets/literemote.ico"
         Background="{DynamicResource AppBg}" WindowStartupLocation="CenterScreen"
         UseLayoutRounding="True" SnapsToDevicePixels="True"
+        Foreground="{DynamicResource Fg}"
         FontFamily="Segoe UI Variable, Segoe UI"
         TextOptions.TextRenderingMode="ClearType" TextOptions.TextFormattingMode="Display">
 
