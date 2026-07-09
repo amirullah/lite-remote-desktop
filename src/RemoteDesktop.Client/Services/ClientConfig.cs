@@ -23,6 +23,10 @@ public sealed class ClientConfig
     /// <summary>Ask for confirmation before deleting a saved session from the Recent list.</summary>
     public bool ConfirmDelete { get; set; } = true;
 
+    /// <summary>When a session is already fullscreen, open a NEW session fullscreen on the same monitor
+    /// (joins the "workspace"); switch between them with the toolbar buttons. Off = each opens separately.</summary>
+    public bool JoinActiveFullscreen { get; set; } = true;
+
     /// <summary>Relay server ("host:port") used for ID-based connections. Shared with the host side.</summary>
     public string RelayAddress { get; set; } = "";
 

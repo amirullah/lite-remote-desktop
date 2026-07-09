@@ -34,7 +34,7 @@ public sealed class SessionRequest
 /// embedded-RDP window pattern so multiple sessions can run concurrently; <see cref="MainWindow"/> stays
 /// a pure connect hub.
 /// </summary>
-public partial class SessionWindow : Window
+public partial class SessionWindow : Window, ISessionWindow
 {
     private readonly SessionRequest _request;
     private readonly PinStore _pins;
@@ -51,6 +51,9 @@ public partial class SessionWindow : Window
     private string? _lastError;
     private bool _fullscreen;
     private WindowState _preFullscreenState;
+    private WindowStyle _preFullscreenStyle = WindowStyle.SingleBorderWindow;
+    private ResizeMode _preFullscreenResize = ResizeMode.CanResize;
+    private Rect _preFullscreenBounds;
 
     private static readonly int[] FpsChoices = { 0, 15, 24, 30, 45, 60, 75, 90, 120, 144 };
     private static readonly (int W, int H)[] ResChoices =
@@ -105,7 +108,7 @@ public partial class SessionWindow : Window
                 Margin = new Thickness(8, 0, 0, 0), Padding = new Thickness(12, 6, 12, 6), FontSize = 12,
                 ToolTip = Loc.F("Rdp.SwitchTip", e.Label()),
             };
-            b.Click += (_, _) => SessionRegistry.Activate(target);
+            b.Click += (_, _) => SessionRegistry.SwitchTo(this, target);
             SwitchPanel.Children.Add(b);
         }
     }
@@ -372,25 +375,49 @@ public partial class SessionWindow : Window
         _connection?.SendKey(new KeyEventData(VK_CONTROL, 0, false, false));
     }
 
-    private void Fullscreen_Click(object sender, RoutedEventArgs e)
+    public bool IsFullscreen => _fullscreen;
+
+    public System.Windows.Forms.Screen CurrentScreen =>
+        System.Windows.Forms.Screen.FromHandle(new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle());
+
+    private void Fullscreen_Click(object sender, RoutedEventArgs e) => SetFullscreen(!_fullscreen);
+
+    private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+
+    /// <summary>Enter/leave fullscreen, pinned to EXACTLY one monitor (avoids the multi-monitor span that a
+    /// borderless Maximized causes). Entering while already fullscreen just moves to the requested monitor.</summary>
+    public void SetFullscreen(bool on, System.Windows.Forms.Screen? onScreen = null)
     {
-        _fullscreen = !_fullscreen;
-        if (_fullscreen)
+        if (on)
         {
-            _preFullscreenState = WindowState;
+            var target = onScreen ?? CurrentScreen;
+            if (_fullscreen) { PositionToScreen(target); return; }
+            _preFullscreenState = WindowState; _preFullscreenStyle = WindowStyle; _preFullscreenResize = ResizeMode;
+            _preFullscreenBounds = new Rect(Left, Top, Width, Height);
+            WindowState = WindowState.Normal;
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;
-            Topmost = true;
-            WindowState = WindowState.Normal;
-            WindowState = WindowState.Maximized;
+            PositionToScreen(target);
+            _fullscreen = true;
         }
         else
         {
-            WindowStyle = WindowStyle.SingleBorderWindow;
-            ResizeMode = ResizeMode.CanResize;
-            Topmost = false;
+            if (!_fullscreen) return;
+            WindowStyle = _preFullscreenStyle;
+            ResizeMode = _preFullscreenResize;
+            Left = _preFullscreenBounds.Left; Top = _preFullscreenBounds.Top;
+            Width = _preFullscreenBounds.Width; Height = _preFullscreenBounds.Height;
             WindowState = _preFullscreenState;
+            _fullscreen = false;
         }
+    }
+
+    private void PositionToScreen(System.Windows.Forms.Screen screen)
+    {
+        var b = screen.Bounds;
+        var ct = PresentationSource.FromVisual(this)?.CompositionTarget;
+        double dx = ct?.TransformToDevice.M11 ?? 1.0, dy = ct?.TransformToDevice.M22 ?? 1.0;
+        Left = b.Left / dx; Top = b.Top / dy; Width = b.Width / dx; Height = b.Height / dy;
     }
 
     private async void Disconnect_Click(object sender, RoutedEventArgs e)

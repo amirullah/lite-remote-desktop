@@ -237,6 +237,7 @@ public partial class MainWindow : Window
             }
             win.Closed += (_, _) => RefreshRecent();
             win.Show();
+            JoinFullscreenIfActive(win);
             SetStatus(Loc.T("Msg.RdpOpened"));
         }
         catch (Exception ex)
@@ -386,7 +387,22 @@ public partial class MainWindow : Window
         var win = new SessionWindow(req, _pins);
         win.Closed += (_, _) => RefreshRecent();
         win.Show();
+        JoinFullscreenIfActive(win);
         SetStatus(Loc.T("Msg.SessionOpened"));
+    }
+
+    /// <summary>If another session is already fullscreen and the user opted in (default), open this new one
+    /// fullscreen on the SAME monitor — it "joins" the workspace and the toolbar switcher flips between them.
+    /// Off → the new session stays a separate window.</summary>
+    private void JoinFullscreenIfActive(Window win)
+    {
+        if (!_config.JoinActiveFullscreen) return;
+        var af = SessionRegistry.ActiveFullscreen(win);
+        if (af != null && win is ISessionWindow sw)
+        {
+            if (af.Value.Window is ISessionWindow prev) prev.SetFullscreen(false);  // one fullscreen at a time
+            sw.SetFullscreen(true, af.Value.Screen);
+        }
     }
 
     /// <summary>Initial settings for a new session; the session toolbar tunes fps/res/codec/quality live.</summary>

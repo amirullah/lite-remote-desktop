@@ -38,6 +38,7 @@ public partial class SettingsWindow : Window
         if (Loc.Lang == "en") LangEn.IsChecked = true; else LangId.IsChecked = true;
 
         ConfirmDeleteCheck.IsChecked = _config.ConfirmDelete;
+        JoinFsCheck.IsChecked = _config.JoinActiveFullscreen;
         StartupCheck.IsChecked = IsStartupEnabled();
 
         var v = Assembly.GetExecutingAssembly().GetName().Version;
@@ -85,6 +86,13 @@ public partial class SettingsWindow : Window
     {
         if (_loading) return;
         _config.ConfirmDelete = ConfirmDeleteCheck.IsChecked == true;
+        _config.Save();
+    }
+
+    private void JoinFullscreen_Click(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        _config.JoinActiveFullscreen = JoinFsCheck.IsChecked == true;
         _config.Save();
     }
 

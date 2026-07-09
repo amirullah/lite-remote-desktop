@@ -88,6 +88,8 @@
 
                     <Button Content="Ctrl+Alt+Del" Style="{StaticResource Ghost}" DockPanel.Dock="Left" Margin="16,0,0,0" Click="Cad_Click"/>
                     <Button Content="{loc:Loc Session.Fullscreen}" Style="{StaticResource Ghost}" DockPanel.Dock="Left" Margin="8,0,0,0" Click="Fullscreen_Click"/>
+                    <Button Content="🗕" Style="{StaticResource Ghost}" DockPanel.Dock="Left" Margin="8,0,0,0" Padding="11,8" Click="Minimize_Click"
+                            ToolTip="{loc:Loc Session.MinimizeTip}"/>
                     <!-- one button per OTHER live session (RDP + protocol) — filled from code -->
                     <StackPanel x:Name="SwitchPanel" Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="16,0,0,0"/>
 

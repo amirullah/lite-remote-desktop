@@ -104,7 +104,9 @@
                         <CheckBox x:Name="StartupCheck" Content="{loc:Loc Settings.Other.Startup}"
                                   Margin="0,0,0,10" Click="Startup_Click"/>
                         <CheckBox x:Name="ConfirmDeleteCheck" Content="{loc:Loc Settings.Other.ConfirmDelete}"
-                                  Margin="0,0,0,14" Click="ConfirmDelete_Click"/>
+                                  Margin="0,0,0,10" Click="ConfirmDelete_Click"/>
+                        <CheckBox x:Name="JoinFsCheck" Content="{loc:Loc Settings.Other.JoinFullscreen}"
+                                  Margin="0,0,0,14" Click="JoinFullscreen_Click"/>
                         <StackPanel Orientation="Horizontal">
                             <Button Content="{loc:Loc Settings.Other.OpenData}" Style="{StaticResource Ghost}"
                                     Click="OpenData_Click"/>

@@ -17,7 +17,7 @@ namespace RemoteDesktop.Client.Views;
 /// LiteRemote — no external mstsc is launched. RDP signs in with the Windows account, so unlike
 /// LiteRemote's own protocol it can also drive the login/lock screen.
 /// </summary>
-public partial class RdpWindow : Window
+public partial class RdpWindow : Window, Services.ISessionWindow
 {
     private readonly RdpHost _rdp = new();
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromMilliseconds(500) };
@@ -564,31 +564,37 @@ public partial class RdpWindow : Window
         else if (e.Key == System.Windows.Input.Key.Escape && _fullscreen) { ToggleFullscreen(); e.Handled = true; }
     }
 
-    private void ToggleFullscreen()
+    public bool IsFullscreen => _fullscreen;
+
+    public System.Windows.Forms.Screen CurrentScreen =>
+        System.Windows.Forms.Screen.FromHandle(new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle());
+
+    private void ToggleFullscreen() => SetFullscreen(!_fullscreen);
+
+    /// <summary>Enter/leave fullscreen. When entering, cover EXACTLY one monitor (<paramref name="onScreen"/>
+    /// or the current one) — a borderless WindowState.Maximized can otherwise span the whole multi-monitor
+    /// desktop. Entering while already fullscreen just moves the session to the requested monitor (used by
+    /// the switcher to bring another session onto this screen).</summary>
+    public void SetFullscreen(bool on, System.Windows.Forms.Screen? onScreen = null)
     {
-        if (!_fullscreen)
+        if (on)
         {
+            var target = onScreen ?? CurrentScreen;
+            if (_fullscreen) { PositionToScreen(target); return; }
             _prevState = WindowState; _prevStyle = WindowStyle; _prevResize = ResizeMode;
             _prevBounds = new Rect(Left, Top, Width, Height);
             TopBar.Visibility = Visibility.Collapsed;
-
-            // Cover EXACTLY the monitor this window is on. A borderless WindowState.Maximized can stretch
-            // across the WHOLE virtual desktop on a multi-monitor setup (the remote + toolbar then split
-            // over both screens). Pinning to the one screen's bounds keeps fullscreen on a single monitor.
-            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle();
-            var scr = System.Windows.Forms.Screen.FromHandle(hwnd).Bounds;   // physical pixels
-            var (dx, dy) = DpiScale();
-            WindowState = WindowState.Normal;   // drop any maximized state before we position manually
+            WindowState = WindowState.Normal;   // drop any maximized state before positioning manually
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;
-            Left = scr.Left / dx; Top = scr.Top / dy;
-            Width = scr.Width / dx; Height = scr.Height / dy;
+            PositionToScreen(target);
             _fullscreen = true;
             _hover.Start();   // reveal the overlay toolbar on top-edge hover (Esc/F11 are eaten by RDP)
             Status(Loc.T("Rdp.Status.FullscreenHint"));
         }
         else
         {
+            if (!_fullscreen) return;
             _hover.Stop(); HideBar();
             TopBar.Visibility = Visibility.Visible;
             WindowStyle = _prevStyle;
@@ -601,13 +607,19 @@ public partial class RdpWindow : Window
         }
     }
 
+    private void PositionToScreen(System.Windows.Forms.Screen screen)
+    {
+        var b = screen.Bounds; var (dx, dy) = DpiScale();
+        Left = b.Left / dx; Top = b.Top / dy; Width = b.Width / dx; Height = b.Height / dy;
+    }
+
     // ---- Auto-hide overlay toolbar (mstsc connection-bar style) ----
     // Polls the physical cursor (works even while the RDP control has mouse/keyboard capture). When the
     // cursor touches the top edge in fullscreen, a separate top-most window slides in over the remote
     // surface (a separate HWND, so no WPF/WinForms airspace issue and no resize of the RDP session).
     private void Hover_Tick(object? sender, EventArgs e)
     {
-        if (!_fullscreen) { HideBar(); return; }
+        if (!_fullscreen || WindowState == WindowState.Minimized) { HideBar(); return; }
         if (!GetCursorPos(out var c)) return;
         var tl = PointToScreen(new Point(0, 0));             // window top-left  (physical px)
         var tr = PointToScreen(new Point(ActualWidth, 0));   // window top-right (physical px)
@@ -659,10 +671,16 @@ public partial class RdpWindow : Window
         disc.Click += (_, _) => { Disconnect_Click(this, new RoutedEventArgs()); ToggleFullscreen(); };
         System.Windows.Controls.DockPanel.SetDock(disc, System.Windows.Controls.Dock.Right);
 
+        // Minimize straight from fullscreen (restoring returns to fullscreen — WindowState was Normal+bounds).
+        var min = MakeBarButton(Loc.T("Rdp.Bar.Minimize"), ThemeBrush("GhostBg"));
+        min.Click += (_, _) => { HideBar(); WindowState = WindowState.Minimized; };
+        System.Windows.Controls.DockPanel.SetDock(min, System.Windows.Controls.Dock.Right);
+
         dock.Children.Add(hostLbl);
         dock.Children.Add(_barSwitch);
         dock.Children.Add(disc);
         dock.Children.Add(exit);
+        dock.Children.Add(min);
 
         _bar = new Window
         {
@@ -715,7 +733,7 @@ public partial class RdpWindow : Window
                 Margin = new Thickness(8, 0, 0, 0), Padding = new Thickness(12, 6, 12, 6), FontSize = 12,
                 ToolTip = Loc.F("Rdp.SwitchTip", e.Label()),
             };
-            b.Click += (_, _) => SessionRegistry.Activate(target);
+            b.Click += (_, _) => SessionRegistry.SwitchTo(this, target);
             SwitchPanel.Children.Add(b);
         }
     }
@@ -730,7 +748,7 @@ public partial class RdpWindow : Window
             var target = e.Window;
             var b = MakeBarButton(SwitchText(e), ThemeBrush("GhostBg"));
             b.ToolTip = Loc.F("Rdp.SwitchTip", e.Label());
-            b.Click += (_, _) => { HideBar(); SessionRegistry.Activate(target); };
+            b.Click += (_, _) => { HideBar(); SessionRegistry.SwitchTo(this, target); };
             _barSwitch.Children.Add(b);
         }
     }
