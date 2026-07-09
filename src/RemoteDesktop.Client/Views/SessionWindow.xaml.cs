@@ -89,7 +89,12 @@ public partial class SessionWindow : Window
                 SetOverlay("Menghubungkan…", "Menyalakan terowongan VPN…");
                 _vpn = new VpnService();
                 bind = await _vpn.StartAsync(_request.VpnProfilePath, _request.Host);
-                if (bind is null) { ShowDisconnected("Gagal menyalakan VPN."); return; }
+                if (bind is null)
+                {
+                    ShowDisconnected("Gagal menyalakan VPN — periksa profil .ovpn dan koneksi.");
+                    await DisconnectAsync();
+                    return;
+                }
             }
 
             SetOverlay("Menghubungkan…",

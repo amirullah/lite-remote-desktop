@@ -82,14 +82,20 @@
                         </Border.Effect>
                         <StackPanel>
 
-                            <!-- mode toggle -->
+                            <!-- connection type: pick first, the form below adapts -->
+                            <TextBlock Text="JENIS KONEKSI" Style="{StaticResource Label}" Margin="2,0,0,5"/>
                             <Border Background="{StaticResource Bg}" CornerRadius="10" Padding="4"
                                     BorderBrush="{StaticResource Stroke}" BorderThickness="1">
-                                <UniformGrid Rows="1" Columns="2">
+                                <UniformGrid Rows="1" Columns="3">
                                     <RadioButton x:Name="ModeAddrRadio" GroupName="mode" Style="{StaticResource Segment}"
-                                                 Content="By address" IsChecked="True" Checked="Mode_Changed"/>
+                                                 Content="LiteRemote · alamat" IsChecked="True" Checked="Mode_Changed"
+                                                 ToolTip="Protokol LiteRemote langsung ke alamat IP / host (port 7443)."/>
                                     <RadioButton x:Name="ModeIdRadio" GroupName="mode" Style="{StaticResource Segment}"
-                                                 Content="Connect by ID" Checked="Mode_Changed"/>
+                                                 Content="LiteRemote · ID" Checked="Mode_Changed"
+                                                 ToolTip="Protokol LiteRemote lewat ID 9-digit (butuh relay)."/>
+                                    <RadioButton x:Name="ModeRdpRadio" GroupName="mode" Style="{StaticResource Segment}"
+                                                 Content="Windows RDP" Checked="Mode_Changed"
+                                                 ToolTip="Remote Desktop Windows tertanam (login user+password Windows, bisa menembus layar login). Perlu RDP aktif di PC tujuan (port 3389)."/>
                                 </UniformGrid>
                             </Border>
 
@@ -136,41 +142,41 @@
                                 </Grid>
                             </StackPanel>
 
-                            <!-- credentials -->
-                            <TextBlock Text="SIGN IN WITH" Style="{StaticResource Label}" Margin="2,18,0,5"/>
-                            <Border Background="{StaticResource Bg}" CornerRadius="10" Padding="4"
-                                    BorderBrush="{StaticResource Stroke}" BorderThickness="1">
-                                <UniformGrid Rows="1" Columns="2">
-                                    <RadioButton x:Name="AuthPasswordRadio" GroupName="auth" Style="{StaticResource Segment}"
-                                                 Content="Password" IsChecked="True" Checked="AuthMethod_Changed"/>
-                                    <RadioButton x:Name="AuthGoogleRadio" GroupName="auth" Style="{StaticResource Segment}"
-                                                 Content="Google account" Checked="AuthMethod_Changed"/>
-                                </UniformGrid>
-                            </Border>
+                            <!-- credentials (LiteRemote protocol only; RDP logs in inside its own window) -->
+                            <StackPanel x:Name="LoginSection">
+                                <TextBlock Text="SIGN IN WITH" Style="{StaticResource Label}" Margin="2,18,0,5"/>
+                                <Border Background="{StaticResource Bg}" CornerRadius="10" Padding="4"
+                                        BorderBrush="{StaticResource Stroke}" BorderThickness="1">
+                                    <UniformGrid Rows="1" Columns="2">
+                                        <RadioButton x:Name="AuthPasswordRadio" GroupName="auth" Style="{StaticResource Segment}"
+                                                     Content="Password" IsChecked="True" Checked="AuthMethod_Changed"/>
+                                        <RadioButton x:Name="AuthGoogleRadio" GroupName="auth" Style="{StaticResource Segment}"
+                                                     Content="Google account" Checked="AuthMethod_Changed"/>
+                                    </UniformGrid>
+                                </Border>
 
-                            <StackPanel x:Name="PasswordArea" Margin="0,14,0,0">
-                                <TextBlock Text="HOST ACCESS PASSWORD" Style="{StaticResource Label}"/>
-                                <PasswordBox x:Name="PasswordBox"/>
-                                <TextBlock Foreground="{StaticResource Muted}" FontSize="11.5" Margin="2,6,0,0" TextWrapping="Wrap"
-                                           Text="The password created on the remote computer: LiteRemote Host tray icon → “Set access password”."/>
-                            </StackPanel>
-                            <StackPanel x:Name="GoogleArea" Margin="0,12,0,0" Visibility="Collapsed">
-                                <TextBlock Text="GOOGLE OAUTH CLIENT ID" Style="{StaticResource Label}"/>
-                                <TextBox x:Name="GoogleClientIdBox"/>
-                                <TextBlock Text="A browser window will open to sign you in."
-                                           Foreground="{StaticResource Muted}" FontSize="11.5" Margin="2,6,0,0"/>
+                                <StackPanel x:Name="PasswordArea" Margin="0,14,0,0">
+                                    <TextBlock Text="HOST ACCESS PASSWORD" Style="{StaticResource Label}"/>
+                                    <PasswordBox x:Name="PasswordBox"/>
+                                    <TextBlock Foreground="{StaticResource Muted}" FontSize="11.5" Margin="2,6,0,0" TextWrapping="Wrap"
+                                               Text="The password created on the remote computer: LiteRemote Host tray icon → “Set access password”."/>
+                                </StackPanel>
+                                <StackPanel x:Name="GoogleArea" Margin="0,12,0,0" Visibility="Collapsed">
+                                    <TextBlock Text="GOOGLE OAUTH CLIENT ID" Style="{StaticResource Label}"/>
+                                    <TextBox x:Name="GoogleClientIdBox"/>
+                                    <TextBlock Text="A browser window will open to sign you in."
+                                               Foreground="{StaticResource Muted}" FontSize="11.5" Margin="2,6,0,0"/>
+                                </StackPanel>
                             </StackPanel>
 
-                            <!-- connect -->
+                            <!-- RDP hint (shown only when the Windows RDP type is picked) -->
+                            <TextBlock x:Name="RdpHint" Visibility="Collapsed" TextWrapping="Wrap"
+                                       Foreground="{StaticResource Muted}" FontSize="11.5" Margin="2,16,0,0"
+                                       Text="Login user &amp; password Windows dimasukkan di jendela RDP setelah terhubung. RDP juga bisa menembus layar login. Untuk lewat VPN, atur di jendela RDP."/>
+
+                            <!-- connect (label adapts to the chosen type) -->
                             <Button x:Name="ConnectButton" Content="Connect" FontSize="15"
                                     Padding="16,12" Margin="0,20,0,0" Click="Connect_Click"/>
-                            <!-- Embedded Windows RDP session (mstscax ActiveX inside our own window) —
-                                 signs in with the Windows user + password, so it also handles the login
-                                 screen, which LiteRemote's own path can't. -->
-                            <Button x:Name="RdpButton" Content="Windows RDP di dalam aplikasi (user + password)"
-                                    Style="{StaticResource Ghost}" Margin="0,10,0,0" Padding="12,9"
-                                    Click="Rdp_Click"
-                                    ToolTip="Membuka sesi Remote Desktop Windows LANGSUNG di dalam LiteRemote (bukan aplikasi mstsc terpisah). Login pakai user &amp; password Windows — bisa menembus layar login. Perlu RDP diaktifkan di PC tujuan (port 3389)."/>
                             <TextBlock x:Name="StatusText" Foreground="{StaticResource Muted}"
                                        TextWrapping="Wrap" Margin="2,10,0,0" MinHeight="16"/>
                         </StackPanel>

@@ -113,14 +113,31 @@ public partial class MainWindow : Window
         RefreshRecent();
     }
 
-    /// <summary>Open the embedded RDP window (its own window), optionally from a saved session.</summary>
+    /// <summary>
+    /// Open a real Windows RDP session embedded inside LiteRemote (the mstscax.dll ActiveX control),
+    /// not by launching the external mstsc app — its own window, so it can run alongside other sessions.
+    /// RDP authenticates with the Windows account and can drive the login/lock screen — the one thing
+    /// LiteRemote's own path cannot.
+    /// </summary>
     private void OpenRdp(SavedSession? s = null)
     {
         try
         {
-            string host = s != null
-                ? (s.Port is 0 or 3389 ? s.Host : $"{s.Host}:{s.Port}")
-                : HostBox.Text.Trim();
+            string host;
+            if (s != null)
+            {
+                host = s.Port is 0 or 3389 ? s.Host : $"{s.Host}:{s.Port}";
+            }
+            else
+            {
+                host = HostBox.Text.Trim();
+                // Honour a non-default port from the box (RDP defaults to 3389 when none is given).
+                if (host.Length > 0 && !host.Contains(':') &&
+                    int.TryParse(PortBox.Text, out var p) && p is not (0 or 3389))
+                    host = $"{host}:{p}";
+            }
+            if (host.Length == 0) { SetStatus("Masukkan alamat host untuk RDP."); return; }
+
             var win = new RdpWindow(host);
             if (s != null) win.ApplySaved(s, _config);
             win.Closed += (_, _) => RefreshRecent();
@@ -133,13 +150,6 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// Open a real Windows RDP session embedded inside LiteRemote (the mstscax.dll ActiveX control),
-    /// not by launching the external mstsc app. RDP authenticates with the Windows account and can
-    /// drive the login/lock screen — the one thing LiteRemote's own path cannot.
-    /// </summary>
-    private void Rdp_Click(object sender, RoutedEventArgs e) => OpenRdp(null);
-
     private void DeleteSaved_Click(object sender, RoutedEventArgs e)
     {
         int i = SavedBox.SelectedIndex;
@@ -151,16 +161,28 @@ public partial class MainWindow : Window
 
     private void Mode_Changed(object sender, RoutedEventArgs e)
     {
-        if (IdModePanel is null || AddrModePanel is null) return;
+        if (IdModePanel is null || AddrModePanel is null || LoginSection is null) return;
         bool idMode = ModeIdRadio.IsChecked == true;
+        bool rdpMode = ModeRdpRadio.IsChecked == true;
+
         IdModePanel.Visibility = idMode ? Visibility.Visible : Visibility.Collapsed;
-        AddrModePanel.Visibility = idMode ? Visibility.Collapsed : Visibility.Visible;
+        AddrModePanel.Visibility = idMode ? Visibility.Collapsed : Visibility.Visible; // address for LiteRemote-IP + RDP
+        LoginSection.Visibility = rdpMode ? Visibility.Collapsed : Visibility.Visible;  // RDP logs in inside its window
+        RdpHint.Visibility = rdpMode ? Visibility.Visible : Visibility.Collapsed;
+        ConnectButton.Content = rdpMode ? "Buka Windows RDP" : "Connect";
+
+        // Nudge the port to the right service when the type changes (only if still on the other default).
+        if (rdpMode && PortBox.Text.Trim() == "7443") PortBox.Text = "3389";
+        else if (!rdpMode && PortBox.Text.Trim() == "3389") PortBox.Text = "7443";
     }
 
     // ---------------- connect (launches a session window) ----------------
 
     private async void Connect_Click(object sender, RoutedEventArgs e)
     {
+        // Windows RDP is a different beast — hand off to its self-contained window.
+        if (ModeRdpRadio.IsChecked == true) { OpenRdp(null); return; }
+
         ConnectButton.IsEnabled = false;
         try
         {
