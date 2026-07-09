@@ -189,20 +189,39 @@ public partial class RdpWindow : Window
         if (!hasVpn) VpnBox.Text = string.Empty;   // guarantee no phantom-VPN gate diverts a plain connect
         ConnectFields.Visibility = Visibility.Collapsed;
         VpnExpander.Visibility = Visibility.Collapsed;
+        RetryBtn.Visibility = Visibility.Collapsed;
         Status(hasVpn ? Loc.T("Rdp.Status.StartingVpnAndRdp") : Loc.T("Rdp.Status.ConnectingRdp"));
     }
 
-    /// <summary>Bring the connect inputs back (e.g. a hands-off connect failed) so the user can fix things.</summary>
+    /// <summary>
+    /// A connect attempt failed / the session dropped. For a hands-off (main-form-driven) window we keep
+    /// THIS window's connect form HIDDEN and just show the error + a Retry button — everything was entered
+    /// on the hub, so to change credentials the user closes this window and edits there. Only when the
+    /// form was already showing (a saved RDP with no stored password) do we surface the fields to fix.
+    /// </summary>
     private void RevealForm(string msg)
     {
-        _directMode = false;
         _watchdog.Stop();
-        ConnectFields.Visibility = Visibility.Visible;
-        VpnExpander.Visibility = Visibility.Visible;
-        if (VpnBox.Text.Trim().Length > 0) VpnExpander.IsExpanded = true;  // surface VPN fields to fix
-        ConnectBtn.IsEnabled = true;
         DisconnectBtn.IsEnabled = false;
         Status(msg);
+        if (_directMode)
+        {
+            RetryBtn.Visibility = Visibility.Visible;   // stay form-free; offer a retry
+        }
+        else
+        {
+            ConnectFields.Visibility = Visibility.Visible;
+            VpnExpander.Visibility = Visibility.Visible;
+            if (VpnBox.Text.Trim().Length > 0) VpnExpander.IsExpanded = true;
+            ConnectBtn.IsEnabled = true;
+        }
+    }
+
+    private void Retry_Click(object sender, RoutedEventArgs e)
+    {
+        RetryBtn.Visibility = Visibility.Collapsed;
+        Status(Loc.T(VpnBox.Text.Trim().Length > 0 ? "Rdp.Status.StartingVpnAndRdp" : "Rdp.Status.ConnectingRdp"));
+        Connect_Click(this, new RoutedEventArgs());
     }
 
     /// <summary>Remember this RDP target (and any VPN it went through) so it appears in the Recent list
@@ -642,8 +661,10 @@ public partial class RdpWindow : Window
         _wasConnected = connected;
         if (connected)
         {
-            _watchdog.Stop();       // it came up — cancel the reveal-the-bar fallback
-            _directMode = false;
+            _watchdog.Stop();       // it came up — cancel the reveal fallback
+            RetryBtn.Visibility = Visibility.Collapsed;
+            // NOTE: _directMode stays true for the window's life, so a LATER drop reveals a Retry button
+            // (not this window's connect form) — everything was entered on the hub.
             Status(Loc.T("Rdp.Status.Connected"));
             ConnectBtn.IsEnabled = false;
             DisconnectBtn.IsEnabled = true;
@@ -652,11 +673,9 @@ public partial class RdpWindow : Window
         else
         {
             _sessionUp = false;
-            Status(Loc.T("Rdp.Status.DisconnectedReconnect"));
-            ConnectBtn.IsEnabled = true;
-            DisconnectBtn.IsEnabled = false;
-            // A session that came up then dropped: bring the connect inputs back so the user can reconnect.
-            if (!_fullscreen) { ConnectFields.Visibility = Visibility.Visible; VpnExpander.Visibility = Visibility.Visible; }
+            // A session that came up then dropped: offer a retry (hands-off) or the form (form-driven).
+            if (!_fullscreen) RevealForm(Loc.T("Rdp.Status.DisconnectedReconnect"));
+            else Status(Loc.T("Rdp.Status.DisconnectedReconnect"));
         }
     }
 
