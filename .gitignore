@@ -47,6 +47,7 @@ secrets.json
 # Dokumentasi & instruksi kerja pribadi — tetap dipakai lokal, tidak untuk repo publik
 CLAUDE.md
 docs/SESSION-HANDOFF.md
+docs/AUDIT-PLAN.md
 .claude/
 
 # OS
