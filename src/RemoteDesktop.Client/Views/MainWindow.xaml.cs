@@ -434,6 +434,7 @@ public partial class MainWindow : Window
         win.Show();
         PositionOver(win);
         ActivateTab(tab);
+        HideTabBar();   // a new session just took over — the fullscreen bar should hide until next hover
     }
 
     private void BuildTabUi(SessionTab tab, string label)
@@ -621,7 +622,8 @@ public partial class MainWindow : Window
             var tabRef = t;
             var b = MakeBarBtn(t.Label, t == _active ? (System.Windows.Media.Brush)FindResource("Accent")
                                                      : (System.Windows.Media.Brush)FindResource("GhostBg"));
-            b.Click += (_, _) => { ActivateTab(tabRef); RebuildTabBar(); };
+            // Switch THEN hide the bar so you immediately see the chosen session (it reappears on hover).
+            b.Click += (_, _) => { ActivateTab(tabRef); HideTabBar(); };
             _tabBarList.Children.Add(b);
         }
         var add = MakeBarBtn("+", (System.Windows.Media.Brush)FindResource("GhostBg"));
