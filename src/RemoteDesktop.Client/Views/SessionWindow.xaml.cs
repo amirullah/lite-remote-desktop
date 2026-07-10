@@ -440,5 +440,10 @@ public partial class SessionWindow : Window, ISessionWindow
         _input = null;
         _clipboard?.Dispose();
         await DisconnectAsync();
+        // Free the decoder + frame buffers so a closed session releases its memory immediately.
+        try { RemoteImage.Source = null; } catch { }
+        try { _surface?.Dispose(); } catch { }
+        _surface = null;
+        try { GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect(); } catch { }
     }
 }

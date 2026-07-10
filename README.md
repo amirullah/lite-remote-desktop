@@ -217,6 +217,10 @@ Issues and pull requests are welcome. Please keep changes focused, build in `Rel
 PR, and describe how you tested. For anything security-related, prefer a private report over a public
 issue.
 
+## Author
+
+Built and maintained by **amirullah** — [@amirullah](https://github.com/amirullah).
+
 ## License
 
 Released under the [MIT License](LICENSE).

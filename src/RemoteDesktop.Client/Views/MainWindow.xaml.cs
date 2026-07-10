@@ -596,6 +596,20 @@ public partial class MainWindow : Window
             WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowActivated = false,
             Topmost = true, ShowInTaskbar = false, Height = 46, Owner = this, Content = dock, Background = bg,
         };
+        // Without this, the first click on a non-activated top-most window is swallowed by activation, so the
+        // tab/"+"/exit buttons need a second click. MA_NOACTIVATE delivers the click immediately.
+        _tabBar.SourceInitialized += (_, _) =>
+        {
+            var h = new System.Windows.Interop.WindowInteropHelper(_tabBar).Handle;
+            System.Windows.Interop.HwndSource.FromHwnd(h)?.AddHook(NoActivateHook);
+        };
+    }
+
+    private static IntPtr NoActivateHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        const int WM_MOUSEACTIVATE = 0x0021, MA_NOACTIVATE = 3;
+        if (msg == WM_MOUSEACTIVATE) { handled = true; return (IntPtr)MA_NOACTIVATE; }
+        return IntPtr.Zero;
     }
 
     private void RebuildTabBar()
@@ -611,7 +625,8 @@ public partial class MainWindow : Window
             _tabBarList.Children.Add(b);
         }
         var add = MakeBarBtn("+", (System.Windows.Media.Brush)FindResource("GhostBg"));
-        add.Click += (_, _) => { HideTabBar(); SetShellFullscreen(false); ShowConnectForm(); };
+        // Stay in fullscreen — just reveal the connect form (hide session windows). Switch back via a tab.
+        add.Click += (_, _) => { HideTabBar(); ShowConnectForm(); };
         _tabBarList.Children.Add(add);
     }
 
@@ -721,7 +736,18 @@ public partial class MainWindow : Window
 
     private void Settings_Click(object sender, RoutedEventArgs e)
     {
-        new SettingsWindow(_config) { Owner = this }.ShowDialog();
+        var w = new SettingsWindow(_config) { Owner = this, WindowStartupLocation = WindowStartupLocation.Manual };
+        // Drop it down from the gear icon (flyout-style), not centered on the whole window.
+        try
+        {
+            var br = SettingsBtn.PointToScreen(new Point(SettingsBtn.ActualWidth, SettingsBtn.ActualHeight));
+            var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+            double right = br.X / dpi.DpiScaleX, bottom = br.Y / dpi.DpiScaleY;
+            w.Left = System.Math.Max(8, right - w.Width);   // right edge under the icon
+            w.Top = bottom + 6;
+        }
+        catch { }
+        w.ShowDialog();
         UpdateThemeIcon();   // theme may have changed inside Settings
         RefreshRecent();     // saved sessions may have been cleared inside Settings
     }

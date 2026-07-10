@@ -19,11 +19,20 @@ namespace RemoteDesktop.Client.Rendering;
 /// tile). Decoded batches funnel through a queue drained by a single scheduled UI pass, so a burst
 /// of frames coalesces into one render instead of piling latency onto the dispatcher.
 /// </summary>
-public sealed class FrameSurface
+public sealed class FrameSurface : IDisposable
 {
     private readonly Dispatcher _dispatcher;
     private WriteableBitmap? _bitmap;
     public ImageSource? Source => _bitmap;
+
+    /// <summary>Release the native H.264 decoder + frame buffers. Call only after the network loop has
+    /// stopped (connection disposed) so no ApplyFrame is in flight.</summary>
+    public void Dispose()
+    {
+        try { _decoder?.Dispose(); } catch { }
+        _decoder = null;
+        _bitmap = null;
+    }
 
     public event Action? SizeChanged;
     public int Width { get; private set; }
