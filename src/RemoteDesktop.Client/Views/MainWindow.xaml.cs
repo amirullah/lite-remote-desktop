@@ -38,6 +38,7 @@ public partial class MainWindow : Window
         Mode_Changed(this, new RoutedEventArgs());   // apply the initial (address-mode) field layout
 
         SessionRegistry.TabbedShell = true;   // the tab strip does session switching; suppress in-session buttons
+        _fsHover.Tick += FsHover_Tick;        // reveal the fullscreen hover tab bar on the top edge
 
         // Keep the active session window pinned over the content area as the shell moves/resizes.
         SizeChanged += (_, _) => RepositionActive();
@@ -408,6 +409,7 @@ public partial class MainWindow : Window
         public Window Win = null!;
         public Border Container = null!;   // the whole tab element in the strip
         public Border Chip = null!;        // the clickable label chip (highlighted when active)
+        public string Label = "";
     }
 
     private readonly List<SessionTab> _tabs = new();
@@ -436,6 +438,7 @@ public partial class MainWindow : Window
 
     private void BuildTabUi(SessionTab tab, string label)
     {
+        tab.Label = label;
         var text = new TextBlock
         {
             Text = label, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
@@ -464,7 +467,11 @@ public partial class MainWindow : Window
         _active = tab;
         foreach (var t in _tabs)
         {
-            if (t == tab) { t.Win.Show(); PositionOver(t.Win); try { t.Win.Activate(); } catch { } }
+            if (t == tab)
+            {
+                if (t.Win is ISessionWindow sw) sw.SetChrome(!_shellFullscreen);   // hide own bar in fullscreen
+                t.Win.Show(); PositionOver(t.Win); try { t.Win.Activate(); } catch { }
+            }
             else t.Win.Hide();
             HighlightTab(t, t == tab);
         }
@@ -483,12 +490,17 @@ public partial class MainWindow : Window
     {
         _tabs.Remove(tab);
         TabList.Children.Remove(tab.Container);
-        if (_tabs.Count == 0) { TabStrip.Visibility = Visibility.Collapsed; _active = null; }
+        if (_tabs.Count == 0)
+        {
+            if (_shellFullscreen) SetShellFullscreen(false);   // last session closed — leave fullscreen
+            TabStrip.Visibility = Visibility.Collapsed; _active = null;
+        }
         else if (_active == tab) ActivateTab(_tabs[^1]);
         RefreshRecent();
     }
 
-    /// <summary>Size/position a session window to cover ContentArea exactly (physical pixels — DPI-robust).</summary>
+    /// <summary>Size/position a session window to cover ContentArea exactly, in PHYSICAL pixels (SetWindowPos)
+    /// so it's correct even when the shell sits on a different-DPI monitor.</summary>
     private void PositionOver(Window win)
     {
         if (WindowState == WindowState.Minimized || ContentArea.ActualWidth < 1) return;
@@ -507,6 +519,121 @@ public partial class MainWindow : Window
     {
         if (_active != null && WindowState != WindowState.Minimized) PositionOver(_active.Win);
     }
+
+    // ---- shell fullscreen: cover the monitor, hide the active session's chrome, reveal a hover TAB bar ----
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT p);
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct POINT { public int X, Y; }
+
+    private bool _shellFullscreen;
+    public bool IsShellFullscreen => _shellFullscreen;
+    private WindowState _fsPrevState = WindowState.Normal;
+    private WindowStyle _fsPrevStyle = WindowStyle.SingleBorderWindow;
+    private (int x, int y, int w, int h) _fsPrevPhys;
+    private Window? _tabBar;
+    private StackPanel? _tabBarList;
+    private readonly System.Windows.Threading.DispatcherTimer _fsHover = new() { Interval = TimeSpan.FromMilliseconds(120) };
+
+    public void ToggleShellFullscreen() => SetShellFullscreen(!_shellFullscreen);
+
+    public void SetShellFullscreen(bool on)
+    {
+        if (on == _shellFullscreen || _active == null) return;
+        if (on)
+        {
+            _fsPrevState = WindowState; _fsPrevStyle = WindowStyle;
+            _fsPrevPhys = SessionRegistry.GetPhysicalBounds(this);
+            WindowState = WindowState.Normal;
+            WindowStyle = WindowStyle.None;
+            ResizeMode = ResizeMode.NoResize;
+            TabStrip.Visibility = Visibility.Collapsed;
+            var scr = System.Windows.Forms.Screen.FromHandle(new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle());
+            SessionRegistry.FillScreen(this, scr);
+            _shellFullscreen = true;
+            if (_active.Win is ISessionWindow sw) sw.SetChrome(false);
+            RepositionActive();
+            _fsHover.Start();
+        }
+        else
+        {
+            _fsHover.Stop(); HideTabBar();
+            WindowStyle = _fsPrevStyle;
+            ResizeMode = ResizeMode.CanResize;
+            TabStrip.Visibility = _tabs.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            SessionRegistry.SetPhysicalBounds(this, _fsPrevPhys.x, _fsPrevPhys.y, _fsPrevPhys.w, _fsPrevPhys.h);
+            WindowState = _fsPrevState;
+            _shellFullscreen = false;
+            foreach (var t in _tabs) if (t.Win is ISessionWindow sw) sw.SetChrome(true);
+            RepositionActive();
+        }
+    }
+
+    private void FsHover_Tick(object? sender, EventArgs e)
+    {
+        if (!_shellFullscreen) { HideTabBar(); return; }
+        if (!GetCursorPos(out var c)) return;
+        var tl = PointToScreen(new Point(0, 0));
+        double dy = System.Windows.Media.VisualTreeHelper.GetDpi(this).DpiScaleY;
+        bool nearTop = c.Y <= tl.Y + 2;
+        bool overBar = _tabBar is { IsVisible: true } && c.Y <= tl.Y + (int)(46 * dy);
+        if (nearTop || overBar) ShowTabBar(tl); else HideTabBar();
+    }
+
+    private void EnsureTabBar()
+    {
+        if (_tabBar != null) return;
+        var bg = (System.Windows.Media.Brush)FindResource("Panel");
+        _tabBarList = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        var dock = new DockPanel { LastChildFill = false, Background = bg };
+        DockPanel.SetDock(_tabBarList, Dock.Left);
+        var exit = MakeBarBtn(Loc.T("Rdp.Bar.ExitFullscreen"), (System.Windows.Media.Brush)FindResource("Accent"));
+        exit.Click += (_, _) => { HideTabBar(); SetShellFullscreen(false); };
+        DockPanel.SetDock(exit, Dock.Right);
+        dock.Children.Add(_tabBarList);
+        dock.Children.Add(exit);
+        _tabBar = new Window
+        {
+            WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowActivated = false,
+            Topmost = true, ShowInTaskbar = false, Height = 46, Owner = this, Content = dock, Background = bg,
+        };
+    }
+
+    private void RebuildTabBar()
+    {
+        if (_tabBarList == null) return;
+        _tabBarList.Children.Clear();
+        foreach (var t in _tabs)
+        {
+            var tabRef = t;
+            var b = MakeBarBtn(t.Label, t == _active ? (System.Windows.Media.Brush)FindResource("Accent")
+                                                     : (System.Windows.Media.Brush)FindResource("GhostBg"));
+            b.Click += (_, _) => { ActivateTab(tabRef); RebuildTabBar(); };
+            _tabBarList.Children.Add(b);
+        }
+        var add = MakeBarBtn("+", (System.Windows.Media.Brush)FindResource("GhostBg"));
+        add.Click += (_, _) => { HideTabBar(); SetShellFullscreen(false); ShowConnectForm(); };
+        _tabBarList.Children.Add(add);
+    }
+
+    private static Button MakeBarBtn(string text, System.Windows.Media.Brush background) => new()
+    {
+        Content = text, Margin = new Thickness(6, 6, 0, 6), Padding = new Thickness(14, 5, 14, 5),
+        Foreground = System.Windows.Media.Brushes.White, Background = background, BorderThickness = new Thickness(0),
+        FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Cursor = System.Windows.Input.Cursors.Hand,
+    };
+
+    private void ShowTabBar(Point tlPhysical)
+    {
+        EnsureTabBar();
+        RebuildTabBar();
+        var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+        _tabBar!.Left = tlPhysical.X / dpi.DpiScaleX;
+        _tabBar.Top = tlPhysical.Y / dpi.DpiScaleY;
+        _tabBar.Width = ActualWidth;
+        if (!_tabBar.IsVisible) _tabBar.Show();
+    }
+
+    private void HideTabBar() { try { if (_tabBar?.IsVisible == true) _tabBar.Hide(); } catch { } }
 
     /// <summary>Initial settings for a new session; the session toolbar tunes fps/res/codec/quality live.</summary>
     private SessionSettings BuildInitialSettings() => new()

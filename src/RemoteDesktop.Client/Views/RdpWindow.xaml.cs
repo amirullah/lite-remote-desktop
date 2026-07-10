@@ -578,7 +578,15 @@ public partial class RdpWindow : Window, Services.ISessionWindow
     public System.Windows.Forms.Screen CurrentScreen =>
         System.Windows.Forms.Screen.FromHandle(new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle());
 
-    private void ToggleFullscreen() => SetFullscreen(!_fullscreen);
+    public void SetChrome(bool visible) => TopBar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+
+    private void ToggleFullscreen()
+    {
+        // In the tabbed shell, fullscreen is driven by the shell (hover tab bar) so it's uniform across
+        // session types and you can switch tabs while fullscreen.
+        if (Owner is MainWindow shell) { shell.ToggleShellFullscreen(); return; }
+        SetFullscreen(!_fullscreen);
+    }
 
     /// <summary>Enter/leave fullscreen. When entering, cover EXACTLY one monitor (<paramref name="onScreen"/>
     /// or the current one) — a borderless WindowState.Maximized can otherwise span the whole multi-monitor

@@ -15,6 +15,9 @@ public interface ISessionWindow
     System.Windows.Forms.Screen CurrentScreen { get; }
     /// <summary>Enter/leave fullscreen; when entering, cover <paramref name="onScreen"/> (or the current one).</summary>
     void SetFullscreen(bool on, System.Windows.Forms.Screen? onScreen = null);
+    /// <summary>Show/hide this session's own top bar/toolbar. The tabbed shell hides it in fullscreen so the
+    /// remote fills the whole screen (like standalone RDP), and shows its own hover tab bar instead.</summary>
+    void SetChrome(bool visible);
 }
 
 /// <summary>

@@ -381,7 +381,14 @@ public partial class SessionWindow : Window, ISessionWindow
     public System.Windows.Forms.Screen CurrentScreen =>
         System.Windows.Forms.Screen.FromHandle(new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle());
 
-    private void Fullscreen_Click(object sender, RoutedEventArgs e) => SetFullscreen(!_fullscreen);
+    public void SetChrome(bool visible) => SessionToolbar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+
+    private void Fullscreen_Click(object sender, RoutedEventArgs e)
+    {
+        // In the tabbed shell, fullscreen is shell-driven (uniform + switchable), like RDP.
+        if (Owner is MainWindow shell) { shell.ToggleShellFullscreen(); return; }
+        SetFullscreen(!_fullscreen);
+    }
 
     private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
 
