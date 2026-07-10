@@ -592,8 +592,13 @@ public partial class MainWindow : Window
         var exit = MakeBarBtn(Loc.T("Rdp.Bar.ExitFullscreen"), (System.Windows.Media.Brush)FindResource("Accent"));
         exit.Click += (_, _) => { HideTabBar(); SetShellFullscreen(false); };
         DockPanel.SetDock(exit, Dock.Right);
+        // Close the CURRENT session from fullscreen (there's no per-session ✕ up here).
+        var close = MakeBarBtn(Loc.T("Shell.CloseSession"), (System.Windows.Media.Brush)FindResource("Bad"));
+        close.Click += (_, _) => { HideTabBar(); try { _active?.Win.Close(); } catch { } };
+        DockPanel.SetDock(close, Dock.Right);
         dock.Children.Add(_tabBarList);
         dock.Children.Add(exit);
+        dock.Children.Add(close);
         _tabBar = new Window
         {
             WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowActivated = false,
@@ -644,12 +649,14 @@ public partial class MainWindow : Window
     private void ShowTabBar(Point tlPhysical)
     {
         EnsureTabBar();
+        if (_tabBar!.IsVisible) return;   // already up — do NOT rebuild/reposition every hover tick
+                                          // (that recreated the buttons ~8×/s → flicker + swallowed clicks)
         RebuildTabBar();
         var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
-        _tabBar!.Left = tlPhysical.X / dpi.DpiScaleX;
+        _tabBar.Left = tlPhysical.X / dpi.DpiScaleX;
         _tabBar.Top = tlPhysical.Y / dpi.DpiScaleY;
         _tabBar.Width = ActualWidth;
-        if (!_tabBar.IsVisible) _tabBar.Show();
+        _tabBar.Show();
     }
 
     private void HideTabBar() { try { if (_tabBar?.IsVisible == true) _tabBar.Hide(); } catch { } }
