@@ -36,6 +36,15 @@ public partial class MainWindow : Window
         if (last != null) { HostBox.Text = last.Host; PortBox.Text = last.Port.ToString(); }
         RefreshRecent();
         Mode_Changed(this, new RoutedEventArgs());   // apply the initial (address-mode) field layout
+
+        SessionRegistry.TabbedShell = true;   // the tab strip does session switching; suppress in-session buttons
+
+        // Keep the active session window pinned over the content area as the shell moves/resizes.
+        SizeChanged += (_, _) => RepositionActive();
+        LocationChanged += (_, _) => RepositionActive();
+        StateChanged += (_, _) => { if (WindowState != WindowState.Minimized) RepositionActive(); };
+        ContentArea.SizeChanged += (_, _) => RepositionActive();
+
         Closing += (_, _) => Cleanup();
     }
 
@@ -235,9 +244,8 @@ public partial class MainWindow : Window
                 win.ApplyDirect(RdpUserBox.Text, RdpPassBox.Password, RdpSaveCheck.IsChecked == true,
                                 vpnPath, VpnUserBox.Text, VpnPassBox.Password, NameBox.Text.Trim());
             }
-            win.Closed += (_, _) => RefreshRecent();
-            win.Show();
-            JoinFullscreenIfActive(win);
+            AddSessionTab(win, s != null ? s.DisplayName
+                                        : (NameBox.Text.Trim().Length > 0 ? NameBox.Text.Trim() : host));
             SetStatus(Loc.T("Msg.RdpOpened"));
         }
         catch (Exception ex)
@@ -385,24 +393,119 @@ public partial class MainWindow : Window
     private void LaunchSession(SessionRequest req)
     {
         var win = new SessionWindow(req, _pins);
-        win.Closed += (_, _) => RefreshRecent();
-        win.Show();
-        JoinFullscreenIfActive(win);
+        AddSessionTab(win, req.Descriptor.DisplayName);
         SetStatus(Loc.T("Msg.SessionOpened"));
     }
 
-    /// <summary>If another session is already fullscreen and the user opted in (default), open this new one
-    /// fullscreen on the SAME monitor — it "joins" the workspace and the toolbar switcher flips between them.
-    /// Off → the new session stays a separate window.</summary>
-    private void JoinFullscreenIfActive(Window win)
+    // ================= tabbed shell =================
+    // Each session is its OWN borderless window — so mstscax / input / clipboard keep working untouched (no
+    // re-parent) — owned by this shell and positioned EXACTLY over ContentArea, so it looks and behaves like
+    // a tab. Switching a tab hides the other session windows and shows the chosen one; "+" hides them all,
+    // which reveals the connect form sitting behind.
+
+    private sealed class SessionTab
     {
-        if (!_config.JoinActiveFullscreen) return;
-        var af = SessionRegistry.ActiveFullscreen(win);
-        if (af != null && win is ISessionWindow sw)
+        public Window Win = null!;
+        public Border Container = null!;   // the whole tab element in the strip
+        public Border Chip = null!;        // the clickable label chip (highlighted when active)
+    }
+
+    private readonly List<SessionTab> _tabs = new();
+    private SessionTab? _active;
+
+    /// <summary>Embed a freshly-created (not-yet-shown) session window as a tab and activate it.</summary>
+    private void AddSessionTab(Window win, string label)
+    {
+        win.WindowStyle = WindowStyle.None;
+        win.ResizeMode = ResizeMode.NoResize;
+        win.ShowInTaskbar = false;
+        win.WindowStartupLocation = WindowStartupLocation.Manual;
+        win.Owner = this;
+
+        var tab = new SessionTab { Win = win };
+        BuildTabUi(tab, string.IsNullOrWhiteSpace(label) ? Loc.T("Shell.Session") : label.Trim());
+        _tabs.Add(tab);
+        TabList.Children.Add(tab.Container);
+        TabStrip.Visibility = Visibility.Visible;
+
+        win.Closed += (_, _) => RemoveTab(tab);
+        win.Show();
+        PositionOver(win);
+        ActivateTab(tab);
+    }
+
+    private void BuildTabUi(SessionTab tab, string label)
+    {
+        var text = new TextBlock
         {
-            if (af.Value.Window is ISessionWindow prev) prev.SetFullscreen(false);  // one fullscreen at a time
-            sw.SetFullscreen(true, af.Value.Screen);
+            Text = label, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxWidth = 170, Margin = new Thickness(12, 4, 6, 4),
+        };
+        var close = new Button
+        {
+            Content = "✕", Style = (Style)FindResource("Ghost"), FontSize = 10, VerticalAlignment = VerticalAlignment.Center,
+            Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(0, 0, 4, 0),
+        };
+        close.Click += (_, _) => { try { tab.Win.Close(); } catch { } };
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        row.Children.Add(text); row.Children.Add(close);
+
+        tab.Chip = new Border { CornerRadius = new CornerRadius(8), Child = row, Cursor = System.Windows.Input.Cursors.Hand };
+        tab.Chip.MouseLeftButtonUp += (_, _) => ActivateTab(tab);
+        tab.Container = new Border { Margin = new Thickness(2, 0, 2, 0), Child = tab.Chip };
+    }
+
+    private void HighlightTab(SessionTab tab, bool active)
+        => tab.Chip.Background = active ? (System.Windows.Media.Brush)FindResource("PanelHi") : System.Windows.Media.Brushes.Transparent;
+
+    private void ActivateTab(SessionTab tab)
+    {
+        _active = tab;
+        foreach (var t in _tabs)
+        {
+            if (t == tab) { t.Win.Show(); PositionOver(t.Win); try { t.Win.Activate(); } catch { } }
+            else t.Win.Hide();
+            HighlightTab(t, t == tab);
         }
+    }
+
+    private void AddTab_Click(object sender, RoutedEventArgs e) => ShowConnectForm();
+
+    /// <summary>Hide every session window so the connect form behind them shows (the "+" / home view).</summary>
+    private void ShowConnectForm()
+    {
+        _active = null;
+        foreach (var t in _tabs) { t.Win.Hide(); HighlightTab(t, false); }
+    }
+
+    private void RemoveTab(SessionTab tab)
+    {
+        _tabs.Remove(tab);
+        TabList.Children.Remove(tab.Container);
+        if (_tabs.Count == 0) { TabStrip.Visibility = Visibility.Collapsed; _active = null; }
+        else if (_active == tab) ActivateTab(_tabs[^1]);
+        RefreshRecent();
+    }
+
+    /// <summary>Size/position a session window to cover ContentArea exactly (physical pixels — DPI-robust).</summary>
+    private void PositionOver(Window win)
+    {
+        if (WindowState == WindowState.Minimized || ContentArea.ActualWidth < 1) return;
+        try
+        {
+            var tl = ContentArea.PointToScreen(new Point(0, 0));
+            var br = ContentArea.PointToScreen(new Point(ContentArea.ActualWidth, ContentArea.ActualHeight));
+            int x = (int)System.Math.Round(tl.X), y = (int)System.Math.Round(tl.Y);
+            int w = (int)System.Math.Round(br.X - tl.X), h = (int)System.Math.Round(br.Y - tl.Y);
+            if (w > 0 && h > 0) SessionRegistry.SetPhysicalBounds(win, x, y, w, h);
+        }
+        catch { }
+    }
+
+    private void RepositionActive()
+    {
+        if (_active != null && WindowState != WindowState.Minimized) PositionOver(_active.Win);
     }
 
     /// <summary>Initial settings for a new session; the session toolbar tunes fps/res/codec/quality live.</summary>

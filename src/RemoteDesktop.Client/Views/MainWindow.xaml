@@ -10,7 +10,20 @@
         FontFamily="Segoe UI Variable, Segoe UI"
         TextOptions.TextRenderingMode="ClearType" TextOptions.TextFormattingMode="Display">
 
-    <Grid>
+    <DockPanel>
+        <!-- ===== session tab strip (shown once ≥1 session is open); "+" returns to the connect form ===== -->
+        <Border x:Name="TabStrip" DockPanel.Dock="Top" Visibility="Collapsed"
+                Background="{DynamicResource Panel}" BorderBrush="{DynamicResource Stroke}" BorderThickness="0,0,0,1" Padding="8,5">
+            <StackPanel Orientation="Horizontal">
+                <StackPanel x:Name="TabList" Orientation="Horizontal"/>
+                <Button x:Name="AddTabBtn" Content="+" Click="AddTab_Click" Style="{StaticResource Ghost}"
+                        Padding="13,5" Margin="4,0,0,0" FontSize="15" FontWeight="Bold" ToolTip="{loc:Loc Shell.NewSession}"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Session windows (borderless, owned) are positioned OVER this area; the connect form sits behind
+             them and shows when "+" is chosen or no session is active. -->
+        <Grid x:Name="ContentArea">
         <!-- ================= CONNECT PANEL ================= -->
         <Grid x:Name="ConnectPanel">
             <Grid.ColumnDefinitions>
@@ -261,5 +274,6 @@
                 </StackPanel>
             </ScrollViewer>
         </Grid>
-    </Grid>
+        </Grid>
+    </DockPanel>
 </Window>

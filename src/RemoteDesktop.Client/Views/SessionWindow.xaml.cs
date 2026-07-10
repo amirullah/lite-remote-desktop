@@ -96,6 +96,7 @@ public partial class SessionWindow : Window, ISessionWindow
     {
         if (SwitchPanel == null) return;
         SwitchPanel.Children.Clear();
+        if (SessionRegistry.TabbedShell) return;   // the shell's tab strip does switching
         foreach (var e in SessionRegistry.Others(this))
         {
             var target = e.Window;

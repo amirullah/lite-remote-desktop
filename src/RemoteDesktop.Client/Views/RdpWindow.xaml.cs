@@ -726,6 +726,7 @@ public partial class RdpWindow : Window, Services.ISessionWindow
     {
         if (SwitchPanel == null) return;
         SwitchPanel.Children.Clear();
+        if (SessionRegistry.TabbedShell) return;   // the shell's tab strip does switching
         foreach (var e in SessionRegistry.Others(this))
         {
             var target = e.Window;
@@ -745,6 +746,7 @@ public partial class RdpWindow : Window, Services.ISessionWindow
     {
         if (_barSwitch == null) return;
         _barSwitch.Children.Clear();
+        if (SessionRegistry.TabbedShell) return;   // the shell's tab strip does switching
         foreach (var e in SessionRegistry.Others(this))
         {
             var target = e.Window;

@@ -32,6 +32,10 @@ public static class SessionRegistry
     /// <summary>Raised whenever a session opens or closes.</summary>
     public static event Action? Changed;
 
+    /// <summary>True when sessions live as tabs in the shell — the in-session switch buttons are then
+    /// redundant (the tab strip does the switching) and are suppressed.</summary>
+    public static bool TabbedShell;
+
     public static void Register(Window w, Func<string> label, string kind)
     {
         if (_entries.Any(e => e.Window == w)) return;
