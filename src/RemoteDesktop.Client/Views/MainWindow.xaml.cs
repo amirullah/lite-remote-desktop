@@ -428,7 +428,9 @@ public partial class MainWindow : Window
         BuildTabUi(tab, string.IsNullOrWhiteSpace(label) ? Loc.T("Shell.Session") : label.Trim());
         _tabs.Add(tab);
         TabList.Children.Add(tab.Container);
-        TabStrip.Visibility = Visibility.Visible;
+        // Keep the windowed tab strip HIDDEN while fullscreen — adding a session in fullscreen must not pop
+        // the strip over the remote (the hover tab bar covers switching there). It reappears on exit.
+        if (!_shellFullscreen) TabStrip.Visibility = Visibility.Visible;
 
         win.Closed += (_, _) => RemoveTab(tab);
         win.Show();
