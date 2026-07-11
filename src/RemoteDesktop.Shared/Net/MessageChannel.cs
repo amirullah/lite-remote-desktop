@@ -37,6 +37,18 @@ public sealed class MessageChannel : IAsyncDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _readLoop;
     private readonly Task _writeLoop;
+    private volatile int _maxInboundPayload = Framing.MaxPayloadSize;
+
+    /// <summary>
+    /// Upper bound (bytes) on a single inbound frame's declared length. Defaults to the protocol max;
+    /// a host can lower it during the pre-auth handshake so an unauthenticated peer cannot force large
+    /// per-frame allocations, then raise it back once authenticated. (audit M-A0: AUD-004)
+    /// </summary>
+    public int MaxInboundPayloadSize
+    {
+        get => _maxInboundPayload;
+        set => _maxInboundPayload = value < 0 ? 0 : Math.Min(value, Framing.MaxPayloadSize);
+    }
 
     public MessageChannel(Stream stream, int inboundCapacity = 256)
     {
@@ -64,9 +76,23 @@ public sealed class MessageChannel : IAsyncDisposable
     /// <summary>Enqueue a control message (lossless, ordered, high priority).</summary>
     public ValueTask SendAsync(Message message, CancellationToken ct = default)
     {
+        if (IsUnsendable(message)) return ValueTask.CompletedTask; // drop rather than desync the peer
         if (message.Type == MessageType.VideoFrame) return SendVideoAsync(message, ct);
         _control.Writer.TryWrite(message);
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// A message whose length can't be framed (the wire length field is bounded by
+    /// <see cref="Framing.MaxPayloadSize"/>). Reject at the door instead of writing an oversized frame
+    /// the peer silently rejects. Recycles a pooled video buffer so it isn't leaked. (audit M-A0: AUD-003)
+    /// </summary>
+    private static bool IsUnsendable(Message message)
+    {
+        if (message.Length >= 0 && message.Length <= Framing.MaxPayloadSize) return false;
+        if (message.Type == MessageType.VideoFrame && message.Payload.Length > 0)
+            ArrayPool<byte>.Shared.Return(message.Payload);
+        return true;
     }
 
     /// <summary>
@@ -77,6 +103,7 @@ public sealed class MessageChannel : IAsyncDisposable
     /// </summary>
     public bool TrySend(Message message)
     {
+        if (IsUnsendable(message)) return false; // oversized -> caller learns the send didn't happen
         if (message.Type != MessageType.VideoFrame)
         {
             return _control.Writer.TryWrite(message);
@@ -156,8 +183,8 @@ public sealed class MessageChannel : IAsyncDisposable
             {
                 await ReadExactAsync(header, _cts.Token).ConfigureAwait(false);
                 var (type, length) = Framing.ReadHeader(header);
-                if (length < 0 || length > Framing.MaxPayloadSize)
-                    throw new InvalidDataException($"Frame length {length} out of bounds for {type}.");
+                if (length < 0 || length > _maxInboundPayload)
+                    throw new InvalidDataException($"Frame length {length} exceeds inbound cap {_maxInboundPayload} for {type}.");
 
                 byte[] payload = length == 0 ? Array.Empty<byte>() : new byte[length];
                 if (length > 0)

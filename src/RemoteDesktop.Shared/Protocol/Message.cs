@@ -44,6 +44,11 @@ public static class Framing
 
     public static void WriteHeader(Span<byte> header, MessageType type, int payloadLength)
     {
+        // Producer/framer must agree with the read-side bound, or an oversized frame is written that
+        // the peer then rejects — a silent, undiagnosable disconnect. Fail fast here. (audit M-A0: AUD-003)
+        if (payloadLength < 0 || payloadLength > MaxPayloadSize)
+            throw new ArgumentOutOfRangeException(nameof(payloadLength), payloadLength,
+                $"Payload length must be within 0..{MaxPayloadSize}.");
         header[0] = (byte)type;
         BinaryPrimitives.WriteUInt32LittleEndian(header[1..], (uint)payloadLength);
     }

@@ -20,6 +20,10 @@ namespace RemoteDesktop.Host.Services;
 /// </summary>
 public sealed class HostSession
 {
+    // Auth/handshake payloads (JSON + Google id_token) are a few KB; 256 KiB is generous headroom to
+    // cap an unauthenticated peer's per-frame allocation before we raise the limit. (audit M-A0: AUD-004)
+    private const int HandshakeMaxInboundPayload = 256 * 1024;
+
     private readonly MessageChannel _channel;
     private readonly HostConfig _config;
     private readonly ILogger _log;
@@ -63,11 +67,15 @@ public sealed class HostSession
     {
         try
         {
+            // Keep inbound frames small until the peer proves who it is, so an unauthenticated
+            // connection can't force large allocations; lift the cap after auth. (audit M-A0: AUD-004)
+            _channel.MaxInboundPayloadSize = HandshakeMaxInboundPayload;
             if (!await AuthenticateAsync(ct).ConfigureAwait(false))
             {
                 _log.LogWarning("Authentication failed; dropping client.");
                 return;
             }
+            _channel.MaxInboundPayloadSize = Framing.MaxPayloadSize;
 
             // Advertise monitors so the client can offer a display picker.
             var displays = EnumerateDisplays();
