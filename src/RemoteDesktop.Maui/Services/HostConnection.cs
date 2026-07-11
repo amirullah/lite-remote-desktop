@@ -8,23 +8,27 @@ using RemoteDesktop.Shared.Security;
 
 namespace RemoteDesktop.Maui.Services;
 
-/// <summary>Outcome of a hello-connect attempt.</summary>
-public sealed record ConnectResult(bool Ok, string Message, string? Fingerprint);
+/// <summary>
+/// Result of a connect attempt. On success <see cref="Channel"/> is an open, authenticated
+/// <see cref="MessageChannel"/> the caller drives with a <c>ViewerSession</c> (and must dispose).
+/// </summary>
+public sealed record ConnectOutcome(MessageChannel? Channel, bool Ok, string Message, string? Fingerprint);
 
 /// <summary>
-/// M-A1 "hello-connect" for the mobile viewer: open TLS to a LiteRemote host, surface the host's
-/// public-key fingerprint (trust-on-first-use), and run the password auth handshake — all on the same
-/// audited RemoteDesktop.Shared contract the Windows client uses. A real pin store, video decode
-/// (MediaCodec) and input come in M-A2+; this proves the protocol reuse end-to-end.
+/// Viewer-side connect for the mobile app: open TLS to a LiteRemote host (surfacing the host's
+/// public-key fingerprint for trust-on-first-use), run the password auth handshake on the shared
+/// <c>RemoteDesktop.Shared</c> contract, and return the live channel. Persistent pinning (mismatch ->
+/// abort) and Google login land in a later milestone; today TOFU accepts and reports the fingerprint.
 /// </summary>
-public static class HostConnection
+public static class ViewerConnection
 {
-    public static async Task<ConnectResult> HelloConnectAsync(
+    public static async Task<ConnectOutcome> ConnectAsync(
         string host, int port, string password, CancellationToken ct = default)
     {
+        MessageChannel? channel = null;
         try
         {
-            using var tcp = new TcpClient();
+            var tcp = new TcpClient();
             await tcp.ConnectAsync(host, port, ct).ConfigureAwait(false);
 
             string? fingerprint = null;
@@ -37,9 +41,7 @@ public static class HostConnection
                         fingerprint = CertificateManager.FormatFingerprint(
                             CertificateManager.PublicKeyFingerprint(c2));
                     }
-                    // TOFU: accept and surface the fingerprint for the user to verify. A persistent
-                    // per-endpoint pin store (mismatch -> abort) lands in M-A2.
-                    return true;
+                    return true; // TOFU (persistent pin store: later milestone)
                 });
 
             await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
@@ -48,36 +50,41 @@ public static class HostConnection
                 EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
             }).ConfigureAwait(false);
 
-            await using var channel = new MessageChannel(ssl);
+            channel = new MessageChannel(ssl);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(15));
 
             await foreach (var msg in channel.Inbound.ReadAllAsync(timeout.Token).ConfigureAwait(false))
             {
-                switch (msg.Type)
+                if (msg.Type == MessageType.AuthRequest)
                 {
-                    case MessageType.AuthRequest:
-                        _ = AuthProtocol.ReadRequest(msg.Span); // methods/nonce/version
-                        await channel.SendAsync(
-                            AuthProtocol.Response(new AuthResponseData(AuthMethod.Password, password)),
-                            timeout.Token).ConfigureAwait(false);
-                        break;
+                    await channel.SendAsync(
+                        AuthProtocol.Response(new AuthResponseData(AuthMethod.Password, password)),
+                        timeout.Token).ConfigureAwait(false);
+                }
+                else if (msg.Type == MessageType.AuthResult)
+                {
+                    var result = AuthProtocol.ReadResult(msg.Span);
+                    if (result.Ok)
+                        return new ConnectOutcome(channel, true, "Authenticated", fingerprint);
 
-                    case MessageType.AuthResult:
-                        var result = AuthProtocol.ReadResult(msg.Span);
-                        return new ConnectResult(result.Ok,
-                            result.Ok ? "Authenticated ✓" : $"Denied: {result.Reason}", fingerprint);
+                    await channel.DisposeAsync().ConfigureAwait(false);
+                    return new ConnectOutcome(null, false, $"Denied: {result.Reason}", fingerprint);
                 }
             }
-            return new ConnectResult(false, "Connection closed before an auth result.", fingerprint);
+
+            await channel.DisposeAsync().ConfigureAwait(false);
+            return new ConnectOutcome(null, false, "Connection closed before an auth result.", fingerprint);
         }
         catch (OperationCanceledException)
         {
-            return new ConnectResult(false, "Timed out.", null);
+            if (channel is not null) await channel.DisposeAsync().ConfigureAwait(false);
+            return new ConnectOutcome(null, false, "Timed out.", null);
         }
         catch (Exception ex)
         {
-            return new ConnectResult(false, ex.Message, null);
+            if (channel is not null) await channel.DisposeAsync().ConfigureAwait(false);
+            return new ConnectOutcome(null, false, ex.Message, null);
         }
     }
 }
