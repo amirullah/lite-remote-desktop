@@ -57,6 +57,12 @@ public static class RelayProtocol
     public static string FormatId(string id) =>
         id.Length == 9 ? $"{id[..3]} {id[3..6]} {id[6..]}" : id;
 
+    /// <summary>
+    /// Keep only ASCII 0-9. <see cref="char.IsDigit(char)"/> accepts the entire Unicode "Nd" category
+    /// (Arabic-Indic, Devanagari, full-width, …), which would let a mobile keyboard in another locale
+    /// produce an id that never matches the 9 ASCII digits a host registered, and widens the id space
+    /// an attacker can spray. (audit M-A0: AUD-009)
+    /// </summary>
     public static string NormalizeId(string input) =>
-        new(input.Where(char.IsDigit).ToArray());
+        new(input.Where(c => c is >= '0' and <= '9').ToArray());
 }
