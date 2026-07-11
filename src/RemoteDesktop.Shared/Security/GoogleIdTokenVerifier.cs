@@ -39,7 +39,16 @@ public sealed class GoogleIdTokenVerifier
         var parts = idToken.Split('.');
         if (parts.Length != 3) return null;
 
-        var header = JsonSerializer.Deserialize<JwtHeader>(Base64Url.Decode(parts[0]));
+        // A malformed token (bad base64, e.g. length %4==1, or non-JSON segments) must be a clean
+        // "not verified" (null), never an escaping FormatException/JsonException. (audit M-A0: AUD-006)
+        JwtHeader? header;
+        byte[] signature;
+        try
+        {
+            header = JsonSerializer.Deserialize<JwtHeader>(Base64Url.Decode(parts[0]));
+            signature = Base64Url.Decode(parts[2]);
+        }
+        catch (Exception ex) when (ex is FormatException or JsonException) { return null; }
         if (header?.Kid is null || header.Alg != "RS256") return null;
 
         var rsa = await GetKeyAsync(header.Kid, ct).ConfigureAwait(false);
@@ -47,11 +56,12 @@ public sealed class GoogleIdTokenVerifier
 
         // Signature is over the raw "header.payload" ASCII bytes.
         var signingInput = System.Text.Encoding.ASCII.GetBytes($"{parts[0]}.{parts[1]}");
-        var signature = Base64Url.Decode(parts[2]);
         if (!rsa.VerifyData(signingInput, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1))
             return null;
 
-        var payload = JsonSerializer.Deserialize<JwtPayload>(Base64Url.Decode(parts[1]));
+        JwtPayload? payload;
+        try { payload = JsonSerializer.Deserialize<JwtPayload>(Base64Url.Decode(parts[1])); }
+        catch (Exception ex) when (ex is FormatException or JsonException) { return null; }
         if (payload is null) return null;
 
         if (!ValidIssuers.Contains(payload.Iss)) return null;
