@@ -32,6 +32,12 @@ internal sealed class RelayServer
     // splice token -> waiting viewer
     private readonly ConcurrentDictionary<string, TaskCompletionSource<Stream>> _sessions = new();
 
+    // Guardrails against connection/registration spray (audit M-A0: AUD-002/008).
+    private const int MaxConnections = 5000;     // concurrent in-flight handshakes + pipes
+    private const int MaxRegisteredIds = 50_000; // bound _idKeys/_hosts memory
+    private const int HostIdleSeconds = 90;      // host pings every 30s; drop after ~3 missed
+    private int _connections;
+
     public RelayServer(int port) => _port = port;
 
     public async Task RunAsync()
@@ -41,7 +47,18 @@ internal sealed class RelayServer
         while (true)
         {
             var tcp = await listener.AcceptTcpClientAsync();
-            _ = Task.Run(() => HandleAsync(tcp));
+            // Cap concurrent connections so a flood can't exhaust sockets/memory. (AUD-002)
+            if (Interlocked.Increment(ref _connections) > MaxConnections)
+            {
+                Interlocked.Decrement(ref _connections);
+                try { tcp.Close(); } catch { }
+                continue;
+            }
+            _ = Task.Run(async () =>
+            {
+                try { await HandleAsync(tcp); }
+                finally { Interlocked.Decrement(ref _connections); }
+            });
         }
     }
 
@@ -80,6 +97,13 @@ internal sealed class RelayServer
         }
 
         var keyHash = Hash(msg.Key);
+        // Bound total bindings so a spray of fresh-id registrations can't exhaust memory. (AUD-002)
+        if (!_idKeys.ContainsKey(id) && _idKeys.Count >= MaxRegisteredIds)
+        {
+            await RelayProtocol.SendAsync(stream, new RelayMsg { Ok = false, Error = "relay at capacity" });
+            tcp.Close();
+            return;
+        }
         var boundKey = _idKeys.GetOrAdd(id, keyHash);
         if (boundKey != keyHash)
         {
@@ -93,12 +117,14 @@ internal sealed class RelayServer
         await entry.SendAsync(new RelayMsg { Ok = true });
         Console.WriteLine($"[relay] host {RelayProtocol.FormatId(id)} online ({tcp.Client.RemoteEndPoint})");
 
-        // Keep reading pings until the host drops.
+        // Keep reading pings until the host drops. Enforce an idle timeout so a silent/slowloris
+        // connection doesn't hold the id + socket forever. (audit M-A0: AUD-008)
         try
         {
             while (true)
             {
-                var m = await RelayProtocol.ReadAsync(stream);
+                using var idleCts = new CancellationTokenSource(TimeSpan.FromSeconds(HostIdleSeconds));
+                var m = await RelayProtocol.ReadAsync(stream, idleCts.Token);
                 if (m is null) break;
                 if (m.Op == "ping") await entry.SendAsync(new RelayMsg { Op = "pong" });
             }
@@ -106,7 +132,11 @@ internal sealed class RelayServer
         catch { }
         finally
         {
-            _hosts.TryRemove(new KeyValuePair<string, HostEntry>(id, entry));
+            // Only free the key binding if we were still the live host for this id — a newer
+            // registration that already replaced us must keep its binding. Freeing on disconnect stops
+            // ids (and memory) accumulating forever and lets a returning host re-register. (AUD-002)
+            if (_hosts.TryRemove(new KeyValuePair<string, HostEntry>(id, entry)))
+                _idKeys.TryRemove(new KeyValuePair<string, string>(id, keyHash));
             entry.Close();
             Console.WriteLine($"[relay] host {RelayProtocol.FormatId(id)} offline");
         }
