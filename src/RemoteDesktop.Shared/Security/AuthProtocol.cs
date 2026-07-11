@@ -12,7 +12,13 @@ public enum AuthMethod : byte
     Google = 2,
 }
 
-/// <summary>Host -> client: which methods are accepted plus a per-session anti-replay nonce.</summary>
+/// <summary>
+/// Host -> client: which methods are accepted plus a per-session <paramref name="Nonce"/>.
+/// NOTE (audit AUD-014): the nonce is currently NOT bound into the client's proof — replay is prevented
+/// by the TLS session itself (the password/id_token is sent inside TLS with a pinned host cert), not by
+/// the nonce. Binding it would require a challenge-response (SCRAM-style) scheme, which the host cannot
+/// do while it stores only an Argon2 hash. Kept reserved for that future upgrade.
+/// </summary>
 public sealed record AuthRequestData(AuthMethod Methods, string Nonce)
 {
     /// <summary>Host's wire-protocol version. Absent from a pre-versioning peer -> defaults to v1. (AUD-010)</summary>

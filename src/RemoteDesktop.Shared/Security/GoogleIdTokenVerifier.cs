@@ -18,13 +18,16 @@ public sealed record GoogleIdentity(string Subject, string Email, bool EmailVeri
 public sealed class GoogleIdTokenVerifier
 {
     private const string JwksUri = "https://www.googleapis.com/oauth2/v3/certs";
+    private const int ClockSkewSeconds = 60; // tolerate small clock differences on exp/nbf (audit AUD-016)
     private static readonly string[] ValidIssuers = { "https://accounts.google.com", "accounts.google.com" };
 
     private readonly HttpClient _http;
     private readonly string _audience; // your Google OAuth client id
     private readonly Func<DateTimeOffset> _now;
 
-    private Dictionary<string, RSA> _keys = new();
+    // Volatile: RefreshKeysAsync swaps the whole dictionary reference atomically, so concurrent
+    // VerifyAsync reads always see a complete key set (audit AUD-015).
+    private volatile Dictionary<string, RSA> _keys = new();
     private DateTimeOffset _keysFetchedAt = DateTimeOffset.MinValue;
 
     public GoogleIdTokenVerifier(string audience, HttpClient? http = null, Func<DateTimeOffset>? now = null)
@@ -66,7 +69,10 @@ public sealed class GoogleIdTokenVerifier
 
         if (!ValidIssuers.Contains(payload.Iss)) return null;
         if (payload.Aud != _audience) return null;
-        if (_now().ToUnixTimeSeconds() >= payload.Exp) return null;
+
+        long now = _now().ToUnixTimeSeconds();
+        if (now - ClockSkewSeconds >= payload.Exp) return null;                       // expired
+        if (payload.Nbf > 0 && now + ClockSkewSeconds < payload.Nbf) return null;      // not yet valid (AUD-016)
 
         return new GoogleIdentity(payload.Sub ?? "", payload.Email ?? "", payload.EmailVerified, payload.Name ?? "");
     }
@@ -80,7 +86,11 @@ public sealed class GoogleIdTokenVerifier
 
     private async Task RefreshKeysAsync(CancellationToken ct)
     {
-        var jwks = await _http.GetFromJsonAsync<Jwks>(JwksUri, ct).ConfigureAwait(false);
+        // A transient JWKS fetch/parse failure must NOT throw out of VerifyAsync (that would turn a
+        // network blip into a crashed auth) nor wipe a good key set — keep what we have. (audit AUD-015)
+        Jwks? jwks;
+        try { jwks = await _http.GetFromJsonAsync<Jwks>(JwksUri, ct).ConfigureAwait(false); }
+        catch { return; }
         if (jwks?.Keys is null) return;
 
         var map = new Dictionary<string, RSA>();
@@ -111,6 +121,7 @@ public sealed class GoogleIdTokenVerifier
         [JsonPropertyName("email_verified")] public bool EmailVerified { get; init; }
         [JsonPropertyName("name")] public string? Name { get; init; }
         [JsonPropertyName("exp")] public long Exp { get; init; }
+        [JsonPropertyName("nbf")] public long Nbf { get; init; }
     }
 
     private sealed record Jwks([property: JsonPropertyName("keys")] List<JwkKey> Keys);
