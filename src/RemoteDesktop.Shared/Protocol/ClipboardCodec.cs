@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.IO;
 using System.Text;
 
 namespace RemoteDesktop.Shared.Protocol;
@@ -41,8 +42,14 @@ public static class ClipboardCodec
 
     public static ClipboardData Decode(ReadOnlySpan<byte> p)
     {
+        // Untrusted input (either direction): validate before slicing. (audit M-A0: AUD-007)
+        if (p.Length < 5)
+            throw new InvalidDataException($"Clipboard payload too short: {p.Length} < 5 byte header.");
         var format = (ClipboardFormat)p[0];
         int len = BinaryPrimitives.ReadInt32LittleEndian(p[1..]);
+        // `len > p.Length - 5` (not `5 + len > p.Length`) avoids Int32 overflow on a hostile length.
+        if (len < 0 || len > p.Length - 5)
+            throw new InvalidDataException($"Clipboard length {len} invalid for payload of {p.Length} B.");
         return new ClipboardData(format, p.Slice(5, len).ToArray());
     }
 

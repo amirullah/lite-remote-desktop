@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Json;
 using RemoteDesktop.Shared.Protocol;
 
@@ -42,6 +43,20 @@ public static class AuthProtocol
         return new Message(type, bytes);
     }
 
-    private static T Unwrap<T>(ReadOnlySpan<byte> p) =>
-        JsonSerializer.Deserialize<T>(p, Json)!;
+    private static T Unwrap<T>(ReadOnlySpan<byte> p)
+    {
+        // Pre-auth, peer-controlled JSON: a literal "null" or malformed body must be a clean protocol
+        // error, not a NullReferenceException / raw JsonException escaping the library. (audit M-A0: AUD-013)
+        try
+        {
+            var value = JsonSerializer.Deserialize<T>(p, Json);
+            if (value is null)
+                throw new InvalidDataException($"Auth payload {typeof(T).Name} was null.");
+            return value;
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException($"Auth payload {typeof(T).Name} is not valid JSON.", ex);
+        }
+    }
 }

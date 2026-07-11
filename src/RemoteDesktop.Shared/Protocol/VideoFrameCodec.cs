@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.IO;
 
 namespace RemoteDesktop.Shared.Protocol;
 
@@ -75,9 +76,13 @@ public static class VideoFrameCodec
     /// </summary>
     public static (uint frameId, FrameFlags flags, List<Tile> tiles) Decode(ReadOnlyMemory<byte> payload)
     {
+        // Untrusted input (host -> client): validate every offset before slicing so a malformed or
+        // hostile frame is a clean protocol error, never an out-of-range read. (audit M-A0: AUD-001)
         var span = payload.Span;
-        int pos = 0;
+        if (span.Length < FrameHeader)
+            throw new InvalidDataException($"VideoFrame too short: {span.Length} < {FrameHeader} byte header.");
 
+        int pos = 0;
         uint frameId = BinaryPrimitives.ReadUInt32LittleEndian(span[pos..]); pos += 4;
         var flags = (FrameFlags)span[pos++];
         int count = BinaryPrimitives.ReadUInt16LittleEndian(span[pos..]); pos += 2;
@@ -85,11 +90,20 @@ public static class VideoFrameCodec
         var tiles = new List<Tile>(count);
         for (int i = 0; i < count; i++)
         {
+            if (pos + TileHeader > span.Length)
+                throw new InvalidDataException($"VideoFrame: tile {i} header runs past payload ({span.Length} B).");
+
             ushort x = BinaryPrimitives.ReadUInt16LittleEndian(span[pos..]); pos += 2;
             ushort y = BinaryPrimitives.ReadUInt16LittleEndian(span[pos..]); pos += 2;
             ushort w = BinaryPrimitives.ReadUInt16LittleEndian(span[pos..]); pos += 2;
             ushort h = BinaryPrimitives.ReadUInt16LittleEndian(span[pos..]); pos += 2;
-            int len = (int)BinaryPrimitives.ReadUInt32LittleEndian(span[pos..]); pos += 4;
+            uint dataLen = BinaryPrimitives.ReadUInt32LittleEndian(span[pos..]); pos += 4;
+            // Compare as unsigned against the remaining bytes — dodges the (int) overflow that a
+            // hostile 0xFFFFFFFF length would otherwise sneak through.
+            if (dataLen > (uint)(span.Length - pos))
+                throw new InvalidDataException($"VideoFrame: tile {i} data ({dataLen} B) exceeds remaining payload ({span.Length - pos} B).");
+
+            int len = (int)dataLen;
             tiles.Add(new Tile(x, y, w, h, payload.Slice(pos, len)));
             pos += len;
         }

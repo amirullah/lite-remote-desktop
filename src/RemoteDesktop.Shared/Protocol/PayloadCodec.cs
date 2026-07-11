@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.IO;
 using System.Text;
 using RemoteDesktop.Shared.Models;
 
@@ -39,14 +40,24 @@ public static class PayloadCodec
         public int Pos;
         public Reader(ReadOnlySpan<byte> buf) { Buf = buf; Pos = 0; }
 
-        public byte U8() => Buf[Pos++];
-        public bool Bool() => Buf[Pos++] != 0;
-        public short I16() { var v = BinaryPrimitives.ReadInt16LittleEndian(Buf[Pos..]); Pos += 2; return v; }
-        public ushort U16() { var v = BinaryPrimitives.ReadUInt16LittleEndian(Buf[Pos..]); Pos += 2; return v; }
-        public int I32() { var v = BinaryPrimitives.ReadInt32LittleEndian(Buf[Pos..]); Pos += 4; return v; }
+        // Guard every read against a truncated/hostile payload so a bad control message is a clean
+        // protocol error rather than an out-of-range read. (audit M-A0: AUD-012)
+        private void Need(int n)
+        {
+            if (n < 0 || Pos + n > Buf.Length)
+                throw new InvalidDataException($"Payload truncated: need {n} B at offset {Pos}, {Buf.Length - Pos} remaining.");
+        }
+
+        public byte U8() { Need(1); return Buf[Pos++]; }
+        public bool Bool() { Need(1); return Buf[Pos++] != 0; }
+        public short I16() { Need(2); var v = BinaryPrimitives.ReadInt16LittleEndian(Buf[Pos..]); Pos += 2; return v; }
+        public ushort U16() { Need(2); var v = BinaryPrimitives.ReadUInt16LittleEndian(Buf[Pos..]); Pos += 2; return v; }
+        public int I32() { Need(4); var v = BinaryPrimitives.ReadInt32LittleEndian(Buf[Pos..]); Pos += 4; return v; }
+        public long I64() { Need(8); var v = BinaryPrimitives.ReadInt64LittleEndian(Buf[Pos..]); Pos += 8; return v; }
         public string Str()
         {
             int len = U16();
+            Need(len);
             var s = Encoding.UTF8.GetString(Buf.Slice(Pos, len));
             Pos += len;
             return s;
@@ -222,8 +233,7 @@ public static class PayloadCodec
     {
         var r = new Reader(p);
         int fps = r.I32();
-        double mbps = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(r.Buf[r.Pos..]));
-        r.Pos += 8;
+        double mbps = BitConverter.Int64BitsToDouble(r.I64());
         int rtt = r.I32();
         int enc = r.I32();
         string name = r.Str();
