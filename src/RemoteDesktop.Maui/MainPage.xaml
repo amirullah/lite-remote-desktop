@@ -12,6 +12,10 @@
             <Entry x:Name="PortEntry" Placeholder="Port" Text="7443" Keyboard="Numeric" />
             <Entry x:Name="PasswordEntry" Placeholder="Password" IsPassword="True" />
 
+            <Label Text="— or connect by ID —" HorizontalOptions="Center" TextColor="Gray" Margin="0,6" />
+            <Entry x:Name="IdEntry" Placeholder="9-digit ID (leave blank for direct)" Keyboard="Numeric" />
+            <Entry x:Name="RelayEntry" Placeholder="Relay address (host:port)" Keyboard="Url" />
+
             <Button x:Name="ConnectButton" Text="Connect" Clicked="OnConnectClicked" />
             <ActivityIndicator x:Name="Busy" IsRunning="False" IsVisible="False" />
 

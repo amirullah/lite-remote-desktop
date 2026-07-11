@@ -7,9 +7,7 @@ namespace RemoteDesktop.Maui;
 
 public partial class SessionPage : ContentPage
 {
-    private readonly string _host;
-    private readonly int _port;
-    private readonly string _password;
+    private readonly Func<CancellationToken, Task<ConnectOutcome>> _connect;
     private readonly CancellationTokenSource _cts = new();
 
     private MessageChannel? _channel;
@@ -18,22 +16,38 @@ public partial class SessionPage : ContentPage
     private object? _surface;
     private bool _started;
 
-    public SessionPage(string host, int port, string password)
+    public SessionPage(Func<CancellationToken, Task<ConnectOutcome>> connect, string title)
     {
         InitializeComponent();
-        _host = host;
-        _port = port;
-        _password = password;
+        _connect = connect;
+        Title = title;
         Screen.SurfaceReady += OnSurfaceReady;
+
+        // Touch -> mouse: a tap is press+release (a click); a drag streams moves. Coordinates are
+        // normalized 0..65535 so they never desync from the remote resolution.
+        var pointer = new PointerGestureRecognizer();
+        pointer.PointerPressed += (_, e) =>
+        {
+            if (!Map(e, out var nx, out var ny)) return;
+            _ = _session?.SendPointerMoveAsync(nx, ny);
+            _ = _session?.SendPointerButtonAsync(MouseButton.Left, true, nx, ny);
+        };
+        pointer.PointerMoved += (_, e) => { if (Map(e, out var nx, out var ny)) _ = _session?.SendPointerMoveAsync(nx, ny); };
+        pointer.PointerReleased += (_, e) =>
+        {
+            if (!Map(e, out var nx, out var ny)) return;
+            _ = _session?.SendPointerButtonAsync(MouseButton.Left, false, nx, ny);
+        };
+        Screen.GestureRecognizers.Add(pointer);
     }
 
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-        if (_channel is not null) return; // already connected (page re-appear)
+        if (_channel is not null) return;
 
         StatusLabel.Text = "Connecting…";
-        var outcome = await ViewerConnection.ConnectAsync(_host, _port, _password, _cts.Token);
+        var outcome = await _connect(_cts.Token);
         if (!outcome.Ok || outcome.Channel is null)
         {
             StatusLabel.Text = outcome.Message;
@@ -50,7 +64,6 @@ public partial class SessionPage : ContentPage
         TryStart();
     }
 
-    // Both the authenticated channel and the render surface must be ready before we start decoding.
     private void TryStart()
     {
         if (_started || _channel is null || _surface is null) return;
@@ -58,8 +71,7 @@ public partial class SessionPage : ContentPage
 
         _decoder = CreateDecoder(_surface);
         _session = new ViewerSession(_channel, _decoder);
-        _session.VideoConfigured += (w, h) =>
-            Dispatcher.Dispatch(() => StatusLabel.Text = $"{w}×{h}");
+        _session.VideoConfigured += (w, h) => Dispatcher.Dispatch(() => StatusLabel.Text = $"{w}×{h}");
 
         _ = Task.Run(async () =>
         {
@@ -73,6 +85,16 @@ public partial class SessionPage : ContentPage
                 Dispatcher.Dispatch(() => StatusLabel.Text = "Session ended: " + ex.Message);
             }
         });
+    }
+
+    private bool Map(PointerEventArgs e, out ushort nx, out ushort ny)
+    {
+        nx = ny = 0;
+        var p = e.GetPosition(Screen);
+        if (p is null || Screen.Width <= 0 || Screen.Height <= 0) return false;
+        nx = (ushort)Math.Clamp(p.Value.X / Screen.Width * ushort.MaxValue, 0, ushort.MaxValue);
+        ny = (ushort)Math.Clamp(p.Value.Y / Screen.Height * ushort.MaxValue, 0, ushort.MaxValue);
+        return true;
     }
 
     private static IVideoDecoder CreateDecoder(object surface)
