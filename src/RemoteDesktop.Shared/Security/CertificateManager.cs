@@ -11,14 +11,46 @@ namespace RemoteDesktop.Shared.Security;
 /// </summary>
 public static class CertificateManager
 {
-    /// <summary>Create (or load) the host's persistent self-signed certificate.</summary>
-    public static X509Certificate2 GetOrCreateHostCertificate(string pfxPath, string subjectCn = "RemoteDesktopHost")
+    /// <summary>
+    /// Create (or load) the host's persistent self-signed certificate.
+    /// <para>
+    /// <paramref name="protect"/>/<paramref name="unprotect"/> optionally encrypt the private-key
+    /// material at rest (the host injects DPAPI; Shared stays platform-neutral). A legacy file written
+    /// before at-rest protection is read as-is and upgraded in place — the key, and therefore the
+    /// public-key fingerprint every client has pinned, is unchanged. (audit M-A0: AUD-011)
+    /// </para>
+    /// </summary>
+    public static X509Certificate2 GetOrCreateHostCertificate(
+        string pfxPath,
+        string subjectCn = "RemoteDesktopHost",
+        Func<byte[], byte[]>? protect = null,
+        Func<byte[], byte[]>? unprotect = null)
     {
         if (File.Exists(pfxPath))
         {
             try
             {
-                return new X509Certificate2(pfxPath, (string?)null, X509KeyStorageFlags.Exportable);
+                var raw = File.ReadAllBytes(pfxPath);
+                bool legacyPlaintext = false;
+                byte[] pfxBytes;
+                if (unprotect is null)
+                {
+                    pfxBytes = raw;
+                }
+                else
+                {
+                    try { pfxBytes = unprotect(raw); }
+                    catch { pfxBytes = raw; legacyPlaintext = true; } // file predates at-rest protection
+                }
+
+                var loaded = new X509Certificate2(pfxBytes, (string?)null, X509KeyStorageFlags.Exportable);
+
+                // Upgrade a legacy unprotected file to protected-at-rest without minting a new key.
+                if (protect is not null && legacyPlaintext)
+                {
+                    try { File.WriteAllBytes(pfxPath, protect(loaded.Export(X509ContentType.Pfx))); } catch { }
+                }
+                return loaded;
             }
             catch { /* corrupt / unreadable — regenerate below */ }
         }
@@ -40,7 +72,8 @@ public static class CertificateManager
             X509KeyStorageFlags.Exportable);
 
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(pfxPath))!);
-        File.WriteAllBytes(pfxPath, exportable.Export(X509ContentType.Pfx));
+        var toStore = exportable.Export(X509ContentType.Pfx);
+        File.WriteAllBytes(pfxPath, protect is null ? toStore : protect(toStore));
         return exportable;
     }
 

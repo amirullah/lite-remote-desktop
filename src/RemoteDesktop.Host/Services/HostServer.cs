@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Runtime.Versioning;
 using System.Security.Authentication;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.Logging;
 using RemoteDesktop.Shared;
@@ -36,8 +38,19 @@ public sealed class HostServer : IAsyncDisposable
     {
         _config = config;
         _log = log;
-        _certificate = CertificateManager.GetOrCreateHostCertificate(AppPaths.HostCertificate);
+        // Encrypt the private key at rest with DPAPI (per-user) so a stolen host.pfx can't be used to
+        // impersonate this host to pinned clients. Legacy plaintext files upgrade in place. (AUD-011)
+        _certificate = CertificateManager.GetOrCreateHostCertificate(
+            AppPaths.HostCertificate, protect: DpapiProtect, unprotect: DpapiUnprotect);
     }
+
+    [SupportedOSPlatform("windows")]
+    private static byte[] DpapiProtect(byte[] data) =>
+        ProtectedData.Protect(data, optionalEntropy: null, DataProtectionScope.CurrentUser);
+
+    [SupportedOSPlatform("windows")]
+    private static byte[] DpapiUnprotect(byte[] data) =>
+        ProtectedData.Unprotect(data, optionalEntropy: null, DataProtectionScope.CurrentUser);
 
     /// <summary>The public-key fingerprint the user shares out-of-band so a client can pin it.</summary>
     public string Fingerprint => CertificateManager.FormatFingerprint(
