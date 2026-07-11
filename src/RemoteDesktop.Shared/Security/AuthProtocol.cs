@@ -13,10 +13,18 @@ public enum AuthMethod : byte
 }
 
 /// <summary>Host -> client: which methods are accepted plus a per-session anti-replay nonce.</summary>
-public sealed record AuthRequestData(AuthMethod Methods, string Nonce);
+public sealed record AuthRequestData(AuthMethod Methods, string Nonce)
+{
+    /// <summary>Host's wire-protocol version. Absent from a pre-versioning peer -> defaults to v1. (AUD-010)</summary>
+    public int ProtocolVersion { get; init; } = ProtocolInfo.Current;
+}
 
 /// <summary>Client -> host: the chosen method and its proof (password text or Google id_token).</summary>
-public sealed record AuthResponseData(AuthMethod Method, string Secret);
+public sealed record AuthResponseData(AuthMethod Method, string Secret)
+{
+    /// <summary>Client's wire-protocol version. Absent from a pre-versioning peer -> defaults to v1. (AUD-010)</summary>
+    public int ProtocolVersion { get; init; } = ProtocolInfo.Current;
+}
 
 /// <summary>Host -> client: verdict plus an opaque resumable session token on success.</summary>
 public sealed record AuthResultData(bool Ok, string Reason, string SessionToken);

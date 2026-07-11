@@ -44,33 +44,28 @@ All multi-byte integers are **little-endian**. Strings are UTF-8, length-prefixe
 - **Mobile clients MUST implement the same pin model** (compute SHA-256 of the server SPKI, keep a
   per-endpoint pin store, prompt on first use / mismatch). Do **not** fall back to system CA trust.
 
-## 3. Versioning & capability negotiation  ⚠️ GAP — normative for v1
+## 3. Versioning & capability negotiation
 
-**Current reality:** `MessageType.Hello (1)` / `HelloAck (2)` are defined but **never sent or read**.
-The session begins directly at `AuthRequest`. **There is no version field and no capability
-negotiation anywhere in the wire protocol.** Codec choice is expressed only as a *preference* in
-`SettingsUpdate.PreferredCodec`, with no agreed fallback handshake.
+**Implemented (M-A1, AUD-010).** The wire-protocol version is carried **inside the existing auth
+handshake**, not a separate exchange — this adds no round-trip and stays interoperable with peers that
+predate versioning:
 
-**Risk for multi-client:** an old host talking to a new mobile client (or vice-versa) can silently
-mis-parse a changed payload or drop the connection with no diagnostic. This is the single most
-important thing to fix **before** shipping a second client.
+- `AuthRequest` carries `protocolVersion` (the host's version); `AuthResponse` carries `protocolVersion`
+  (the client's version). Both are JSON fields (§7).
+- A peer that predates versioning simply omits the field; it deserializes to **1** (see
+  `ProtocolInfo.Current`), so the current Windows host and client interoperate with a versioned mobile
+  client **without any change**.
+- The host rejects a client whose `protocolVersion < ProtocolInfo.MinSupported` with
+  `AuthResult{ ok=false, reason="Incompatible client protocol vX" }` and closes — it never proceeds
+  into frames it cannot parse.
 
-**v1 requirement (to implement in M-A0/M-A1):** make `Hello`/`HelloAck` the first exchange:
+Today `ProtocolInfo.Current = 1` and `MinSupported = 1`, so every current peer is accepted; the
+mechanism exists so a future breaking change can be gated cleanly.
 
-```
-Client → Host: Hello    { u16 protocolVersion, u16 minAcceptedVersion, u32 capabilityFlags, str clientName }
-Host   → Client: HelloAck{ u16 protocolVersion, u32 capabilityFlags, str hostName }   // then AuthRequest…
-```
-
-- `protocolVersion` starts at **1**. A peer that receives a `protocolVersion` below its own
-  `minAcceptedVersion` must send `AuthResult{ok=false, reason="incompatible protocol vX"}` (or a
-  dedicated `Bye`) and close — never proceed into mis-parsed frames.
-- `capabilityFlags` (bitset) advertises optional features (e.g. H.264, H.265, clipboard-images,
-  display-switch) so both sides intersect capabilities instead of guessing.
-- Backward compatibility rule: **never change the meaning or size of an existing payload field**; add
-  new data only behind a capability flag or a version bump.
-
-Until this lands, all clients are pinned to the exact payload layouts in §5–§10.
+**Compatibility rule:** never change the meaning or size of an existing payload field; add new data
+only behind a bumped `Current` (and raise `MinSupported` only when a change is genuinely breaking).
+`MessageType.Hello`/`HelloAck` remain **reserved** for a future, richer pre-auth capability handshake
+(e.g. negotiating codec/feature flags before auth); they are unused in v1.
 
 ## 4. Framing
 
@@ -146,9 +141,10 @@ Host  → Client : AuthResult  { ok, reason, sessionToken }
 
 Payloads are **JSON (camelCase)** inside TLS:
 
-- `AuthRequest`  = `{ "methods": <u8 bitmask>, "nonce": "<32 hex chars>" }`
+- `AuthRequest`  = `{ "methods": <u8 bitmask>, "nonce": "<32 hex chars>", "protocolVersion": <int> }`
   `AuthMethod`: `None=0, Password=1, Google=2` (bit-flags; host advertises what it accepts).
-- `AuthResponse` = `{ "method": <u8>, "secret": "<password | google id_token>" }`
+- `AuthResponse` = `{ "method": <u8>, "secret": "<password | google id_token>", "protocolVersion": <int> }`
+  `protocolVersion` (both messages) is optional on the wire; absent ⇒ v1 (§3).
 - `AuthResult`   = `{ "ok": <bool>, "reason": "<text>", "sessionToken": "<hex | empty>" }`
 
 Notes / normative behavior:

@@ -138,6 +138,18 @@ public sealed class HostSession
         {
             if (msg.Type != MessageType.AuthResponse) continue;
             var resp = AuthProtocol.ReadResponse(msg.Span);
+
+            // Reject a client whose wire protocol we no longer speak, with a clear reason instead of
+            // mis-parsing later frames. (audit M-A0: AUD-010)
+            if (!ProtocolInfo.IsCompatible(resp.ProtocolVersion))
+            {
+                _log.LogWarning("Client protocol v{Version} incompatible (host requires >= v{Min}).",
+                    resp.ProtocolVersion, ProtocolInfo.MinSupported);
+                await _channel.SendAsync(AuthProtocol.Result(new AuthResultData(false,
+                    $"Incompatible client protocol v{resp.ProtocolVersion}", "")), ct).ConfigureAwait(false);
+                return false;
+            }
+
             bool ok = resp.Method switch
             {
                 AuthMethod.Password => _config.HasPassword && PasswordHasher.Verify(resp.Secret, _config.PasswordHash!),
