@@ -214,7 +214,17 @@ repeat tileCount times:
   [u16 x][u16 y][u16 w][u16 h][u32 dataLen][dataLen bytes]
 ```
 - `FrameFlags`: `None=0, KeyFrame=1` (full frame — safe to start decoding), `Continued=2` (reserved).
-- Tile `Data` is codec-specific: JPEG bytes for `JpegTiles`, an H.264/H.265 NAL slice otherwise.
+- Tile `Data` is codec-specific:
+  - **`JpegTiles`** — each tile is an independent JPEG for the `[x,y,w,h]` dirty rectangle; a frame may
+    carry many tiles. Blit each onto the surface at its offset.
+  - **`H264` / `H265`** — the frame carries **exactly one tile** whose `Data` is a **complete Annex-B
+    access unit** (NAL units separated by `00 00 00 01` start codes). A `KeyFrame` access unit is
+    SPS + PPS + IDR (a decoder may start here); a non-keyframe is a single P-frame. `[x,y,w,h]` cover
+    the full frame. The hardware decoder pads height/width up to a macroblock multiple (e.g. 1080→1088);
+    the client **must crop** the decoded picture to the `VideoConfig` `Width×Height` (top-left region) —
+    otherwise the padded picture mismatches the surface and renders black. Feed the raw `Data` bytes
+    straight to the platform decoder (Media Foundation on Windows, MediaCodec `video/avc` on Android,
+    VideoToolbox on Mac) — SPS/PPS are inline in the keyframe, so no out-of-band codec config is needed.
 - `KeyFrameRequest` (empty payload) asks the host to resend a full frame (e.g. after packet loss or a
   fresh viewer join). Decoders must not start on a non-keyframe.
 
