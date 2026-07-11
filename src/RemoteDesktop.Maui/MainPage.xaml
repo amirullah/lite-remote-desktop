@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="RemoteDesktop.Maui.MainPage"
+             Title="LiteRemote">
+    <ScrollView>
+        <VerticalStackLayout Padding="24" Spacing="14" VerticalOptions="Center">
+            <Label Text="LiteRemote" FontSize="28" FontAttributes="Bold" HorizontalOptions="Center" />
+            <Label Text="Connect to a Windows host" HorizontalOptions="Center" TextColor="Gray" />
+
+            <Entry x:Name="HostEntry" Placeholder="Host (IP or name)" Text="192.168.1.10" Keyboard="Url" />
+            <Entry x:Name="PortEntry" Placeholder="Port" Text="7443" Keyboard="Numeric" />
+            <Entry x:Name="PasswordEntry" Placeholder="Password" IsPassword="True" />
+
+            <Button x:Name="ConnectButton" Text="Connect" Clicked="OnConnectClicked" />
+            <ActivityIndicator x:Name="Busy" IsRunning="False" IsVisible="False" />
+
+            <Label x:Name="StatusLabel" HorizontalOptions="Center" />
+            <Label x:Name="FingerprintLabel" FontSize="11" TextColor="Gray"
+                   HorizontalOptions="Center" LineBreakMode="CharacterWrap" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>
