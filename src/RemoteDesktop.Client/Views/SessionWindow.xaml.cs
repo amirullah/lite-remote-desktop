@@ -41,7 +41,7 @@ public partial class SessionWindow : Window, ISessionWindow
     private readonly ClientConfig _config = ClientConfig.Shared;
 
     private RemoteConnection? _connection;
-    private VpnService? _vpn;
+    private SplitTunnelVpn? _vpn;
     private FrameSurface? _surface;
     private RemoteInputController? _input;
     private ClipboardBridge? _clipboard;
@@ -126,15 +126,21 @@ public partial class SessionWindow : Window, ISessionWindow
     {
         try
         {
-            IPAddress? bind = null;
+            IPAddress? bind = null; // the split tunnel adds an OS route for the host — no socket bind needed
             if (_request.VpnProfilePath != null)
             {
                 SetOverlay(Loc.T("Session.Connecting"), Loc.T("Session.Overlay.StartingVpn"));
-                _vpn = new VpnService();
-                bind = await _vpn.StartAsync(_request.VpnProfilePath, _request.Host, default, _request.VpnUser, _request.VpnPass);
-                if (bind is null)
+                // Same engine as RDP mode: the bundled OpenVPN, elevated, password over the management
+                // interface (never written to disk), routing ONLY this host through the tunnel. Replaces
+                // the old VpnService, which launched a bare "openvpn" (not the bundled path) and failed
+                // "the system cannot find the file specified", and never elevated for the route.
+                string vpnStatus = "";
+                _vpn = new SplitTunnelVpn();
+                bool up = await _vpn.ConnectAsync(_request.VpnProfilePath, _request.VpnUser ?? "", _request.VpnPass ?? "",
+                    _request.Host, s => { vpnStatus = s; SetOverlay(Loc.T("Session.Connecting"), s); }, default);
+                if (!up)
                 {
-                    ShowDisconnected(Loc.T("Session.Disconnected.VpnFailed"));
+                    ShowDisconnected(vpnStatus.Length > 0 ? vpnStatus : Loc.T("Session.Disconnected.VpnFailed"));
                     await DisconnectAsync();
                     return;
                 }
