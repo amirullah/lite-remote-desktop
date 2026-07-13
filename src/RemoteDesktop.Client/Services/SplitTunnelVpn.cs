@@ -47,9 +47,13 @@ public sealed class SplitTunnelVpn : IAsyncDisposable
         int port = FreeTcpPort();
         string logFile = Path.Combine(Path.GetTempPath(), $"literemote-ovpn-{port}.log");
 
-        // disable-dco → force the userspace (wintun) path; the kernel DCO driver rejects the compression
-        //   directives many servers push and then fails to open the interface.
         // route-nopull + route <target> → split tunnel: only the target host goes via the VPN.
+        // Data-channel driver: let OpenVPN auto-select. It prefers the kernel DCO path when that driver
+        //   is present (fast — this is what avoids the throughput meltdown a TCP-transport VPN causes for
+        //   our TCP protocol) and falls back to wintun/tap otherwise. We no longer force --disable-dco:
+        //   that pushed us to userspace and, on a machine with other VPNs, onto a foreign TAP adapter
+        //   where sustained video collapsed while small auth bursts still slipped through. DCO only
+        //   rejects pushed *compression*, and the servers we target push none.
         string args =
             $"--config \"{ovpnProfile}\" " +
             $"--management 127.0.0.1 {port} --management-hold --management-query-passwords " +
@@ -61,10 +65,7 @@ public sealed class SplitTunnelVpn : IAsyncDisposable
             "--mssfix 1200 " +
             // Don't let the server's pushed --inactive kill a genuine low-idle session.
             "--inactive 0 " +
-            // Use a DEDICATED wintun adapter. Without a named node, on a machine that already has other
-            // TAP adapters (e.g. McAfee VPN / OpenVPN Connect) the engine grabbed a foreign idle TAP —
-            // small auth bursts passed but the sustained video stream stalled and the tunnel went idle.
-            "--disable-dco --windows-driver wintun --dev-node LiteRemote --script-security 1 " +
+            "--script-security 1 " +
             $"--verb 4 --log \"{logFile}\"";
 
         Services.Diag.Log($"[vpn] launching engine on mgmt port {port}; log={logFile}");
