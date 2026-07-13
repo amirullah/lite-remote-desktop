@@ -43,7 +43,7 @@ $iscc = Find-Tool @(
 # third_party\ (gitignored — binaries never enter the source repo). Returns the folder with the engine.
 function Ensure-OpenVpnEngine([string]$cache) {
     $need = @("openvpn.exe","libssl-3-x64.dll","libcrypto-3-x64.dll","libpkcs11-helper-1.dll",
-              "vcruntime140.dll","wintun.dll","openvpnserv.exe")
+              "vcruntime140.dll","wintun.dll","openvpnserv.exe","tapctl.exe")
     if (-not ($need | Where-Object { -not (Test-Path (Join-Path $cache $_)) })) {
         Write-Host "  engine cached."
         return $cache
@@ -60,7 +60,7 @@ function Ensure-OpenVpnEngine([string]$cache) {
         $ext = Join-Path $tmp "ext"
         Start-Process msiexec.exe -ArgumentList "/a","`"$msi`"","TARGETDIR=`"$ext`"","/qn" -Wait
         $bin = Join-Path $ext "OpenVPN\bin"
-        foreach ($n in "openvpn.exe","libssl-3-x64.dll","libcrypto-3-x64.dll","libpkcs11-helper-1.dll","vcruntime140.dll","openvpnserv.exe") {
+        foreach ($n in "openvpn.exe","libssl-3-x64.dll","libcrypto-3-x64.dll","libpkcs11-helper-1.dll","vcruntime140.dll","openvpnserv.exe","tapctl.exe") {
             Copy-Item (Join-Path $bin $n) $cache -Force
         }
         $wz = Join-Path $tmp "wintun.zip"
