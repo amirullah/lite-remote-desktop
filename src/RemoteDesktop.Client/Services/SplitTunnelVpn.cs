@@ -48,12 +48,12 @@ public sealed class SplitTunnelVpn : IAsyncDisposable
         string logFile = Path.Combine(Path.GetTempPath(), $"literemote-ovpn-{port}.log");
 
         // route-nopull + route <target> → split tunnel: only the target host goes via the VPN.
-        // Data-channel driver: let OpenVPN auto-select. It prefers the kernel DCO path when that driver
-        //   is present (fast — this is what avoids the throughput meltdown a TCP-transport VPN causes for
-        //   our TCP protocol) and falls back to wintun/tap otherwise. We no longer force --disable-dco:
-        //   that pushed us to userspace and, on a machine with other VPNs, onto a foreign TAP adapter
-        //   where sustained video collapsed while small auth bursts still slipped through. DCO only
-        //   rejects pushed *compression*, and the servers we target push none.
+        // disable-dco + windows-driver wintun → force the userspace path. On a clean machine this creates
+        //   a wintun adapter and works. (Tried DCO in 1.4.31: on a machine that also runs OpenVPN Connect
+        //   its DCO driver reset our TCP transport immediately — reconnect loop. Tried --dev-node in 1.4.30:
+        //   fatal "adapter not found" without the interactive service. So userspace is the stable default;
+        //   a machine crowded with other VPN stacks (McAfee VPN + OpenVPN Connect) needs the dedicated-
+        //   adapter/interactive-service work to be robust — see docs plan.)
         string args =
             $"--config \"{ovpnProfile}\" " +
             $"--management 127.0.0.1 {port} --management-hold --management-query-passwords " +
@@ -65,7 +65,7 @@ public sealed class SplitTunnelVpn : IAsyncDisposable
             "--mssfix 1200 " +
             // Don't let the server's pushed --inactive kill a genuine low-idle session.
             "--inactive 0 " +
-            "--script-security 1 " +
+            "--disable-dco --windows-driver wintun --script-security 1 " +
             $"--verb 4 --log \"{logFile}\"";
 
         Services.Diag.Log($"[vpn] launching engine on mgmt port {port}; log={logFile}");
