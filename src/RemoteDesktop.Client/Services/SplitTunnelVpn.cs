@@ -56,6 +56,10 @@ public sealed class SplitTunnelVpn : IAsyncDisposable
             "--auth-nocache --auth-retry interact " +
             "--route-nopull " +
             $"--route {targetIp} 255.255.255.255 " +
+            // Clamp TCP MSS of connections carried by the tunnel so large video frames don't hit an
+            // MTU/fragmentation black hole (small auth packets pass but the video stream stalls — the
+            // classic "connected, no picture over VPN" symptom).
+            "--mssfix 1200 " +
             "--disable-dco --windows-driver wintun --script-security 1 " +
             $"--verb 4 --log \"{logFile}\"";
 

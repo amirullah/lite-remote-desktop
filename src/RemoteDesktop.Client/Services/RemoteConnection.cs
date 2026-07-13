@@ -147,6 +147,7 @@ public sealed class RemoteConnection : IAsyncDisposable
         }
 
         await _channel.SendAsync(PayloadCodec.Settings(initial), ct).ConfigureAwait(false);
+        Diag.Log($"[proto] authenticated; SettingsUpdate sent (codec={initial.PreferredCodec}, fps={initial.FrameRateMode}) — host should start capture");
         SetState(ConnectionState.Connected, "Connected.");
         _ = Task.Run(() => MessageLoopAsync(_cts!.Token));
         return true;
@@ -212,16 +213,26 @@ public sealed class RemoteConnection : IAsyncDisposable
 
     private async Task MessageLoopAsync(CancellationToken ct)
     {
+        // Lightweight diagnostics so a "connected but no picture" stall (e.g. over a VPN) is traceable:
+        // log the first message of each type + the first video frame, and any loop-ending error.
+        var seen = new HashSet<MessageType>();
+        int frames = 0;
+        Diag.Log("[proto] message loop started — awaiting VideoConfig/frames");
         try
         {
             await foreach (var msg in _channel!.Inbound.ReadAllAsync(ct).ConfigureAwait(false))
             {
+                if (seen.Add(msg.Type)) Diag.Log($"[proto] first {msg.Type} ({msg.Length} B)");
                 switch (msg.Type)
                 {
                     case MessageType.VideoConfig:
-                        VideoConfigured?.Invoke(PayloadCodec.ReadVideoConfig(msg.Span));
+                        var vc = PayloadCodec.ReadVideoConfig(msg.Span);
+                        Diag.Log($"[proto] VideoConfig {vc.Width}x{vc.Height} codec={vc.Codec} tile={vc.TileSize}");
+                        VideoConfigured?.Invoke(vc);
                         break;
                     case MessageType.VideoFrame:
+                        if (frames == 0) Diag.Log($"[proto] first VideoFrame ({msg.Length} B)");
+                        if (++frames % 120 == 0) Diag.Log($"[proto] frames received: {frames}");
                         var mem = new ReadOnlyMemory<byte>(msg.Payload, 0, msg.Length);
                         var (id, flags, tiles) = VideoFrameCodec.Decode(mem);
                         FrameReceived?.Invoke(id, flags, tiles, mem);
@@ -241,9 +252,10 @@ public sealed class RemoteConnection : IAsyncDisposable
             }
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { SetState(ConnectionState.Disconnected, ex.Message); }
+        catch (Exception ex) { Diag.Log("[proto] loop error: " + ex); SetState(ConnectionState.Disconnected, ex.Message); }
         finally
         {
+            Diag.Log($"[proto] message loop ended — frames received: {frames}");
             if (State == ConnectionState.Connected)
                 SetState(ConnectionState.Disconnected, "Connection closed.");
         }
