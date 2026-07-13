@@ -256,6 +256,10 @@ public partial class SessionWindow : Window, ISessionWindow
 
     private void SetOverlay(string title, string status)
     {
+        // Callable from any thread: the VPN engine's management read loop reports status from a
+        // background thread. Touching WPF elements off the UI thread would throw and kill that loop
+        // (so the app never sees VPN "CONNECTED" and times out). Marshal to the UI thread.
+        if (!Dispatcher.CheckAccess()) { Dispatcher.Invoke(() => SetOverlay(title, status)); return; }
         OverlayTitle.Text = title;
         OverlayStatus.Text = status;
         OverlayClose.Visibility = Visibility.Collapsed;
