@@ -57,10 +57,14 @@ public sealed class SplitTunnelVpn : IAsyncDisposable
             "--route-nopull " +
             $"--route {targetIp} 255.255.255.255 " +
             // Clamp TCP MSS of connections carried by the tunnel so large video frames don't hit an
-            // MTU/fragmentation black hole (small auth packets pass but the video stream stalls — the
-            // classic "connected, no picture over VPN" symptom).
+            // MTU/fragmentation black hole.
             "--mssfix 1200 " +
-            "--disable-dco --windows-driver wintun --script-security 1 " +
+            // Don't let the server's pushed --inactive kill a genuine low-idle session.
+            "--inactive 0 " +
+            // Use a DEDICATED wintun adapter. Without a named node, on a machine that already has other
+            // TAP adapters (e.g. McAfee VPN / OpenVPN Connect) the engine grabbed a foreign idle TAP —
+            // small auth bursts passed but the sustained video stream stalled and the tunnel went idle.
+            "--disable-dco --windows-driver wintun --dev-node LiteRemote --script-security 1 " +
             $"--verb 4 --log \"{logFile}\"";
 
         Services.Diag.Log($"[vpn] launching engine on mgmt port {port}; log={logFile}");
