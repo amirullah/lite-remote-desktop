@@ -37,53 +37,6 @@ public sealed class SplitTunnelVpn : IAsyncDisposable
     public static string EnginePath => Path.Combine(AppContext.BaseDirectory, "openvpn", "openvpn.exe");
     public static bool EngineAvailable => File.Exists(EnginePath);
 
-    // Our own dedicated wintun adapter, so the engine never borrows a foreign TAP adapter.
-    private const string AdapterName = "LiteRemote";
-    private static string TapctlPath => Path.Combine(AppContext.BaseDirectory, "openvpn", "tapctl.exe");
-
-    private static bool AdapterExists()
-    {
-        try
-        {
-            foreach (var n in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
-                if (n.Name.Equals(AdapterName, StringComparison.OrdinalIgnoreCase)) return true;
-        }
-        catch { }
-        return false;
-    }
-
-    /// <summary>
-    /// Ensure the dedicated "<see cref="AdapterName"/>" wintun adapter exists (created once via tapctl,
-    /// then it persists). Needs one elevated tapctl call the first time only. Returns true if the adapter
-    /// is available; false (tapctl missing / creation refused) makes the caller fall back to auto-select.
-    /// </summary>
-    private static bool EnsureDedicatedAdapter(Action<string> status)
-    {
-        if (AdapterExists()) return true;
-        if (!File.Exists(TapctlPath)) { Services.Diag.Log("[vpn] tapctl.exe missing — auto adapter"); return false; }
-
-        Services.Diag.Log("[vpn] creating dedicated wintun adapter via tapctl…");
-        status("Menyiapkan adapter jaringan VPN (sekali saja)…");
-        try
-        {
-            var p = Process.Start(new ProcessStartInfo
-            {
-                FileName = TapctlPath,
-                Arguments = $"create --hwid wintun --name \"{AdapterName}\"",
-                UseShellExecute = true,
-                Verb = "runas",
-                WindowStyle = ProcessWindowStyle.Hidden,
-            });
-            p?.WaitForExit(20000);
-            Services.Diag.Log($"[vpn] tapctl exit={p?.ExitCode}; adapter present={AdapterExists()}");
-        }
-        catch (Exception ex)
-        {
-            Services.Diag.Log("[vpn] tapctl create failed: " + ex);
-        }
-        return AdapterExists();
-    }
-
     public async Task<bool> ConnectAsync(string ovpnProfile, string vpnUser, string vpnPassword,
                                          string targetIp, Action<string> status, CancellationToken ct)
     {
@@ -94,17 +47,12 @@ public sealed class SplitTunnelVpn : IAsyncDisposable
         int port = FreeTcpPort();
         string logFile = Path.Combine(Path.GetTempPath(), $"literemote-ovpn-{port}.log");
 
-        // ROOT-CAUSE FIX (diagnosed from OpenVPN logs on a machine with McAfee VPN + OpenVPN Connect):
-        // the engine could not create its own network adapter, so it borrowed a foreign TAP adapter
-        // ("tap-windows6 [McAfee VPN]") on which the sustained video stream collapsed after a few frames
-        // (auth/clipboard bursts still slipped through). Create + own a DEDICATED wintun adapter with
-        // tapctl (once; it persists), then bind the tunnel to it with --dev-node so the engine never
-        // touches McAfee's/OpenVPN-Connect's adapters.
-        bool ownAdapter = EnsureDedicatedAdapter(status);
-        string devNode = ownAdapter ? $"--dev-node \"{AdapterName}\" " : "";
-
         // route-nopull + route <target> → split tunnel: only the target host goes via the VPN.
-        // disable-dco + wintun → userspace wintun path bound to our own adapter (devNode above).
+        // disable-dco + wintun → userspace path. NOTE: a dedicated adapter would need the OpenVPN
+        // interactive service to be installed (tapctl can CREATE a wintun adapter but openvpn can't OPEN
+        // it via --dev-node without the service — "Adapter not found"). Until that lands we use the
+        // default userspace path, which connects (RDP works over it); the LiteRemote-protocol video
+        // meltdown on a crowded-VPN machine is tracked separately.
         string args =
             $"--config \"{ovpnProfile}\" " +
             $"--management 127.0.0.1 {port} --management-hold --management-query-passwords " +
@@ -116,7 +64,7 @@ public sealed class SplitTunnelVpn : IAsyncDisposable
             "--mssfix 1200 " +
             // Don't let the server's pushed --inactive kill a genuine low-idle session.
             "--inactive 0 " +
-            "--disable-dco --windows-driver wintun " + devNode + "--script-security 1 " +
+            "--disable-dco --windows-driver wintun --script-security 1 " +
             $"--verb 4 --log \"{logFile}\"";
 
         Services.Diag.Log($"[vpn] launching engine on mgmt port {port}; log={logFile}");
