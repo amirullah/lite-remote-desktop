@@ -61,6 +61,16 @@ public partial class SessionPage : ContentPage
     private void OnSurfaceReady(object surface)
     {
         _surface = surface;
+        if (_started)
+        {
+            // Returned to the foreground with a fresh surface: repoint the running decoder and ask the
+            // host for a keyframe so the (blank) new surface fills right away instead of staying black.
+#if ANDROID
+            (_decoder as AndroidVideoDecoder)?.SetSurface((global::Android.Views.Surface)surface);
+#endif
+            _ = _session?.RequestKeyFrameAsync();
+            return;
+        }
         TryStart();
     }
 

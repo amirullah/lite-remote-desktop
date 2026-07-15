@@ -82,6 +82,18 @@ public sealed class AndroidVideoDecoder : IVideoDecoder
         }
     }
 
+    /// <summary>
+    /// Repoint the running decoder at a new render surface (e.g. after the page returns to the
+    /// foreground and the TextureView recreates its SurfaceTexture) without rebuilding the codec.
+    /// </summary>
+    public void SetSurface(Surface surface)
+    {
+        lock (_gate)
+        {
+            try { _codec?.SetOutputSurface(surface); } catch { /* not started / unsupported */ }
+        }
+    }
+
     private void ReleaseCodec()
     {
         try { _codec?.Stop(); } catch { }
