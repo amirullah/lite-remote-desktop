@@ -23,7 +23,7 @@ public sealed class RemoteScreenViewHandler : ViewHandler<RemoteScreenView, UIVi
     {
         base.ConnectHandler(platformView);
         if (platformView is VideoView vv)
-            VirtualView?.RaiseSurfaceReady(vv.DisplayLayer);
+            VirtualView?.RaiseSurfaceReady(vv.SampleLayer);
     }
 
     protected override void DisconnectHandler(UIView platformView)
@@ -34,19 +34,20 @@ public sealed class RemoteScreenViewHandler : ViewHandler<RemoteScreenView, UIVi
 
     private sealed class VideoView : UIView
     {
-        public AVSampleBufferDisplayLayer DisplayLayer { get; } =
-            new() { VideoGravity = AVLayerVideoGravity.ResizeAspect };
+        public AVSampleBufferDisplayLayer SampleLayer { get; } = new();
 
         public VideoView()
         {
             BackgroundColor = UIColor.Black;
-            Layer.AddSublayer(DisplayLayer);
+            // Preserve aspect ratio (VideoGravity is the raw AVLayerVideoGravity constant string).
+            SampleLayer.VideoGravity = AVLayerVideoGravity.ResizeAspect.GetConstant()!;
+            Layer.AddSublayer(SampleLayer);
         }
 
         public override void LayoutSubviews()
         {
             base.LayoutSubviews();
-            DisplayLayer.Frame = Bounds; // keep the video layer sized to the view
+            SampleLayer.Frame = Bounds; // keep the video layer sized to the view
         }
     }
 }
