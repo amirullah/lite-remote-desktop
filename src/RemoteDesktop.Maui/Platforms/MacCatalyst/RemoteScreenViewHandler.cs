@@ -39,8 +39,9 @@ public sealed class RemoteScreenViewHandler : ViewHandler<RemoteScreenView, UIVi
         public VideoView()
         {
             BackgroundColor = UIColor.Black;
-            // Preserve aspect ratio (VideoGravity is the raw AVLayerVideoGravity constant string).
-            SampleLayer.VideoGravity = AVLayerVideoGravity.ResizeAspect.GetConstant()!;
+            // Preserve aspect ratio. VideoGravity is typed as string (the raw AVLayerVideoGravity
+            // constant); the enum has no GetConstant() here, so set the well-known constant value.
+            SampleLayer.VideoGravity = "AVLayerVideoGravityResizeAspect";
             Layer.AddSublayer(SampleLayer);
         }
 
