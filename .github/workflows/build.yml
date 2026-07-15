@@ -142,3 +142,55 @@ jobs:
             installer/output/*.exe
             LiteRemote-*.zip
           generate_release_notes: true
+
+  # Mac Catalyst viewer — MAUI's maccatalyst target only builds on macOS, so it runs on a macOS runner.
+  # Produces an UNSIGNED .app (sideload with right-click → Open past Gatekeeper); notarization would need
+  # an Apple Developer account. Runs in parallel with the Windows job; on a tag it attaches the zip.
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Install MAUI (Mac Catalyst)
+        run: dotnet workload install maui-maccatalyst
+
+      - name: Build Mac Catalyst app (unsigned)
+        run: >
+          dotnet build src/RemoteDesktop.Maui/RemoteDesktop.Maui.csproj
+          -f net8.0-maccatalyst -c Release
+          -p:CreatePackage=false -p:CodesignKey= -p:EnableCodeSigning=false
+
+      - name: Derive version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then V="${GITHUB_REF#refs/tags/v}";
+          elif [[ -n "${{ github.event.inputs.release_tag }}" ]]; then V="${{ github.event.inputs.release_tag }}"; V="${V#v}";
+          else V="1.0.0-ci.$GITHUB_RUN_NUMBER"; fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Zip .app
+        run: |
+          APP=$(find src/RemoteDesktop.Maui/bin/Release/net8.0-maccatalyst -name "*.app" -type d | head -1)
+          echo "app bundle: $APP"
+          if [ -z "$APP" ]; then echo "No .app produced"; exit 1; fi
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "LiteRemote-Viewer-Mac-${{ steps.ver.outputs.version }}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiteRemote-Mac-${{ steps.ver.outputs.version }}
+          path: LiteRemote-Viewer-Mac-*.zip
+          if-no-files-found: error
+
+      - name: Attach to Release (on tag or manual dispatch)
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          files: LiteRemote-Viewer-Mac-*.zip

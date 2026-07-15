@@ -1,9 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<!-- M-A1: Android saja untuk sekarang (workload maui-android). iOS/MacCatalyst ditambahkan
-		     nanti saat di-build di macOS/CI dengan workload maui-* yang sesuai. -->
+		<!-- Android di-build di Windows/CI; MacCatalyst HANYA bisa di-build di macOS (runner CI macOS).
+		     Di Windows kita hanya build target android secara eksplisit (-f net8.0-android), jadi target
+		     maccatalyst tak mengganggu build lokal. -->
 		<TargetFrameworks>net8.0-android</TargetFrameworks>
+		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net8.0-android;net8.0-maccatalyst</TargetFrameworks>
 		<!-- Uncomment to also build the tizen app. You will need to install tizen by following this: https://github.com/Samsung/Tizen.NET -->
 		<!-- <TargetFrameworks>$(TargetFrameworks);net8.0-tizen</TargetFrameworks> -->
 

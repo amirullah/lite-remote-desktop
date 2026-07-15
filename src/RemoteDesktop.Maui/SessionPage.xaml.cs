@@ -111,6 +111,8 @@ public partial class SessionPage : ContentPage
     {
 #if ANDROID
         return new AndroidVideoDecoder((global::Android.Views.Surface)surface);
+#elif MACCATALYST
+        return new MacVideoDecoder((global::AVFoundation.AVSampleBufferDisplayLayer)surface);
 #else
         throw new PlatformNotSupportedException("No video decoder for this platform yet.");
 #endif

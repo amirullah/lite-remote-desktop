@@ -16,7 +16,7 @@ public static class MauiProgram
 			})
 			.ConfigureMauiHandlers(handlers =>
 			{
-#if ANDROID
+#if ANDROID || MACCATALYST
 				handlers.AddHandler(typeof(Controls.RemoteScreenView), typeof(RemoteScreenViewHandler));
 #endif
 			});
