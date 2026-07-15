@@ -5,7 +5,9 @@
 		     Di Windows kita hanya build target android secara eksplisit (-f net8.0-android), jadi target
 		     maccatalyst tak mengganggu build lokal. -->
 		<TargetFrameworks>net8.0-android</TargetFrameworks>
-		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net8.0-android;net8.0-maccatalyst</TargetFrameworks>
+		<!-- On macOS build ONLY the Mac Catalyst target (the CI macOS job). Android is built on Windows,
+		     so we don't add it here — otherwise the macOS restore would also demand the android workload. -->
+		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net8.0-maccatalyst</TargetFrameworks>
 		<!-- Uncomment to also build the tizen app. You will need to install tizen by following this: https://github.com/Samsung/Tizen.NET -->
 		<!-- <TargetFrameworks>$(TargetFrameworks);net8.0-tizen</TargetFrameworks> -->
 
