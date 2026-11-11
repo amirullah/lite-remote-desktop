@@ -145,7 +145,12 @@ public sealed class SplitTunnelVpn : IAsyncDisposable
 
                 if (line.StartsWith(">HOLD:", StringComparison.Ordinal))
                 {
-                    await ReleaseHoldAsync();
+                    // --management-hold makes openvpn hold on EVERY (re)start, not just the first:
+                    // after a RECONNECTING (e.g. server reset the TCP link) it emits
+                    // ">HOLD:Waiting for hold release:N" again. Releasing only once left the engine
+                    // parked until the 75s timeout ("Gagal menyalakan VPN") — always release here.
+                    Interlocked.Exchange(ref _holdReleased, 1);
+                    await SendAsync("hold release");
                 }
                 else if (line.StartsWith(">PASSWORD:Need", StringComparison.Ordinal))
                 {
