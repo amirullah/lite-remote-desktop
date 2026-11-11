@@ -299,6 +299,12 @@ public partial class RdpWindow : Window, Services.ISessionWindow
                     RevealForm(Loc.T("Rdp.Status.VpnEngineMissing"));
                     return;
                 }
+                if (!File.Exists(vpn))
+                {
+                    // Say exactly what's wrong — the generic "VPN failed" text hid this (renamed/moved .ovpn).
+                    RevealForm(string.Format(Loc.T("Rdp.Status.VpnProfileMissing"), vpn));
+                    return;
+                }
                 if (VpnUserBox.Text.Trim().Length == 0 || VpnPassBox.Password.Length == 0)
                 {
                     RevealForm(Loc.T("Rdp.Status.FillVpnToStart"));
