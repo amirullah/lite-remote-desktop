@@ -78,7 +78,7 @@ public partial class SessionEditWindow : Window
     private void BrowseVpn_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new Microsoft.Win32.OpenFileDialog { Filter = Loc.T("Common.OvpnFileFilter") };
-        if (dlg.ShowDialog(this) == true) VpnProfileBox.Text = dlg.FileName;
+        if (dlg.ShowDialog(this) == true) VpnProfileBox.Text = Services.VpnProfileStore.Import(dlg.FileName);
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)

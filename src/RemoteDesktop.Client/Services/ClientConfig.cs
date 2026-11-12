@@ -93,6 +93,7 @@ public sealed class ClientConfig
                      .Where(k => k.StartsWith("session:") || k.StartsWith("vpn:") || k.StartsWith("rdp:"))
                      .ToList())
             Secrets.Remove(key);
+        VpnProfileStore.DeleteAll();   // imported .ovpn copies go with the profiles
         Save();
     }
 
@@ -197,7 +198,57 @@ public sealed class ClientConfig
         }
         catch { cfg = new ClientConfig(); }
         try { cfg.MigrateLegacy(); } catch { }
+        try { cfg.ImportVpnProfilesIntoStore(); } catch { }
         return cfg;
+    }
+
+    /// <summary>
+    /// Move every saved VPN profile that still points at an outside file (e.g. Downloads) into
+    /// <see cref="VpnProfileStore"/>, re-keying its remembered password (secrets are keyed by path).
+    /// A profile whose outside file is already gone is re-pointed to a stored copy of the same name if any.
+    /// </summary>
+    private void ImportVpnProfilesIntoStore()
+    {
+        bool changed = false;
+        string? Repoint(string old)
+        {
+            if (string.IsNullOrWhiteSpace(old) || VpnProfileStore.IsManaged(old)) return null;
+            string? dest;
+            if (File.Exists(old)) dest = VpnProfileStore.Import(old);
+            else
+            {
+                dest = VpnProfileStore.FindStored(old);
+                if (dest == null && VpnProfileStore.FindRedownloaded(old) is { } again)
+                    dest = VpnProfileStore.Import(again);
+            }
+            return dest != null && !string.Equals(dest, old, StringComparison.OrdinalIgnoreCase) ? dest : null;
+        }
+        void MoveSecret(string from, string to)
+        {
+            if (Secrets.TryGetValue("vpn:" + from, out var enc))
+            {
+                Secrets.Remove("vpn:" + from);
+                Secrets.TryAdd("vpn:" + to, enc);
+            }
+        }
+
+        for (int i = 0; i < VpnProfiles.Count; i++)
+        {
+            var old = VpnProfiles[i].OvpnPath;
+            var dest = Repoint(old);
+            if (dest == null) continue;
+            MoveSecret(old, dest);
+            if (string.Equals(LastVpnProfile, old, StringComparison.OrdinalIgnoreCase)) LastVpnProfile = dest;
+            // Two saved entries may now resolve to the same stored file — keep ids intact, just repoint.
+            VpnProfiles[i] = VpnProfiles[i] with { OvpnPath = dest };
+            changed = true;
+        }
+        if (LastVpnProfile != null && Repoint(LastVpnProfile) is { } lastDest)
+        {
+            MoveSecret(LastVpnProfile, lastDest);
+            LastVpnProfile = lastDest; changed = true;
+        }
+        if (changed) Save();
     }
 
     public void Save()

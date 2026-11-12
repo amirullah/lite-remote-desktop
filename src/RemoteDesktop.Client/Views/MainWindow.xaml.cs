@@ -716,7 +716,7 @@ public partial class MainWindow : Window
     private void BrowseVpn_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new OpenFileDialog { Filter = "OpenVPN profile (*.ovpn)|*.ovpn|All files|*.*" };
-        if (dlg.ShowDialog() == true) VpnProfileBox.Text = dlg.FileName;
+        if (dlg.ShowDialog() == true) VpnProfileBox.Text = Services.VpnProfileStore.Import(dlg.FileName);
     }
 
     /// <summary>Show a validation message and focus the offending field.</summary>

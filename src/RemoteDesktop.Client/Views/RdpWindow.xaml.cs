@@ -410,7 +410,11 @@ public partial class RdpWindow : Window, Services.ISessionWindow
             Filter = Loc.T("Common.OvpnFileFilter"),
             CheckFileExists = true,
         };
-        if (dlg.ShowDialog(this) == true) { VpnBox.Text = dlg.FileName; RememberVpn(dlg.FileName); }
+        if (dlg.ShowDialog(this) == true)
+        {
+            var stored = Services.VpnProfileStore.Import(dlg.FileName);   // keep our own copy, like OpenVPN Connect
+            VpnBox.Text = stored; RememberVpn(stored);
+        }
     }
 
     private void ClearVpn_Click(object sender, RoutedEventArgs e) { VpnBox.Text = string.Empty; VpnUserBox.Text = string.Empty; VpnPassBox.Password = string.Empty; }
