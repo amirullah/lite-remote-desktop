@@ -358,7 +358,9 @@ public partial class MainWindow : Window
                     bool rememberVpn = SavePasswordCheck.IsChecked == true;
                     var vpn = _config.UpsertVpn(new VpnProfile { OvpnPath = vpnPath, Username = VpnUserBox.Text.Trim(), SavePassword = rememberVpn });
                     vpnId = vpn.Id;
-                    _config.SetSecret("vpn:" + vpnPath, rememberVpn && VpnPassBox.Password.Length > 0 ? VpnPassBox.Password : null);
+                    _config.SetVpnSecret(vpnPath, VpnPassBox.Password, rememberVpn,
+                        _config.Sessions.FirstOrDefault(x => x.IdentityKey == new SavedSession
+                            { Kind = SessionKind.LiteRemoteIp, Host = host, Port = port, Auth = auth }.IdentityKey)?.Id);
                     _config.LastVpnProfile = vpnPath; _config.Save();
                 }
 

@@ -151,8 +151,9 @@ public partial class RdpWindow : Window, Services.ISessionWindow
         bool hasVpn = false;
         if (s.UseVpn && cfg.GetVpn(s.VpnProfileId) is { } v)
         {
-            VpnBox.Text = v.OvpnPath;
-            if (!string.IsNullOrWhiteSpace(v.Username) && VpnUserBox.Text.Trim().Length == 0) VpnUserBox.Text = v.Username;
+            VpnBox.Text = v.OvpnPath;   // TextChanged may prefill the user from the .ovpn's setenv USERNAME…
+            // …but the saved (possibly edited) VPN user must win over that default.
+            if (!string.IsNullOrWhiteSpace(v.Username)) VpnUserBox.Text = v.Username;
             hasVpn = true;
         }
         LoadSavedRdpCreds();   // fill user/password from the saved secret for this host
@@ -265,14 +266,26 @@ public partial class RdpWindow : Window, Services.ISessionWindow
                 });
                 vpnId = v.Id;
             }
-            cfg.UpsertSession(new SavedSession
+            // Update the EXISTING row in place (keeps its Id, pin and label) instead of rebuilding it.
+            var existing = ExistingRdpSession(cfg, host, port);
+            var row = (existing ?? new SavedSession { Kind = SessionKind.Rdp, Host = host, Port = port }) with
             {
-                Kind = SessionKind.Rdp, Host = host, Port = port, Label = _directLabel ?? "",
+                Label = _directLabel ?? existing?.Label ?? "",
                 Username = UserBox.Text.Trim(), SavePassword = SaveCredsCheck?.IsChecked == true,
                 UseVpn = vpnId != null, VpnProfileId = vpnId,
-            });
+            };
+            cfg.UpsertSession(row);
         }
         catch { }
+    }
+
+    /// <summary>The saved RDP row for host:port (port 0 and 3389 are the same target).</summary>
+    private static SavedSession? ExistingRdpSession(ClientConfig cfg, string host, int port)
+    {
+        int p = port == 0 ? 3389 : port;
+        string h = host.Trim();
+        return cfg.Sessions.FirstOrDefault(x => x.Kind == SessionKind.Rdp &&
+            string.Equals(x.Host.Trim(), h, StringComparison.OrdinalIgnoreCase) && (x.Port == 0 ? 3389 : x.Port) == p);
     }
 
     private async void Connect_Click(object sender, RoutedEventArgs e)
@@ -325,7 +338,7 @@ public partial class RdpWindow : Window, Services.ISessionWindow
             }
 
             StartRdp(host, port);
-            SaveCredsIfWanted(VpnBox.Text.Trim(), host);   // remember passwords if the box is ticked
+            SaveCredsIfWanted(VpnBox.Text.Trim(), host, port);   // remember passwords if the box is ticked
             SaveRdpSessionToRecent(host, port);            // show this target in the Recent list
         }
         catch (Exception ex)
@@ -458,24 +471,49 @@ public partial class RdpWindow : Window, Services.ISessionWindow
         if (host.Length == 0) return;
         try
         {
-            var combo = ClientConfig.Shared.GetSecret(RdpSecretKey(host));
-            if (string.IsNullOrEmpty(combo)) return;
-            var parts = combo.Split('\n');
-            if (UserBox.Text.Trim().Length == 0 && parts.Length > 0) UserBox.Text = parts[0];
-            if (PassBox.Password.Length == 0 && parts.Length > 1) PassBox.Password = parts[1];
-            if (SaveCredsCheck != null) SaveCredsCheck.IsChecked = true;
+            var key = RdpSecretKey(host);
+            // Target (host or PORT) changed since the fields were prefilled, and the user hasn't touched
+            // them → they belong to the OLD target. Clear them, or they'd be saved under the new port and
+            // overwrite that session's account (the :3389 ↔ :13389 mix-up).
+            if (_credsKey != null && key != _credsKey &&
+                UserBox.Text == _prefillUser && PassBox.Password == _prefillPass)
+            {
+                UserBox.Text = string.Empty; PassBox.Password = string.Empty;
+            }
+            _credsKey = key;
+            var combo = ClientConfig.Shared.GetSecret(key);
+            if (!string.IsNullOrEmpty(combo))
+            {
+                var parts = combo.Split('\n');
+                if (UserBox.Text.Trim().Length == 0 && parts.Length > 0) UserBox.Text = parts[0];
+                if (PassBox.Password.Length == 0 && parts.Length > 1) PassBox.Password = parts[1];
+                if (SaveCredsCheck != null) SaveCredsCheck.IsChecked = true;
+            }
+            _prefillUser = UserBox.Text; _prefillPass = PassBox.Password;
         }
         catch { }
     }
 
-    private void SaveCredsIfWanted(string profile, string host)
+    // host is ALREADY port-stripped by SplitHostPort, so the key must be built from (host, port) —
+    // RdpSecretKey(host) would default to :3389 and make a :13389 connect overwrite the :3389 account.
+    // Which secret key the account fields were last filled from, and what was filled — lets
+    // LoadSavedRdpCreds tell "prefilled for the old target" from "typed by the user".
+    private string? _credsKey;
+    private string _prefillUser = "", _prefillPass = "";
+
+    private void SaveCredsIfWanted(string profile, string host, int port)
     {
         try
         {
             var cfg = ClientConfig.Shared;
             bool save = SaveCredsCheck?.IsChecked == true;
-            if (profile.Length > 0) cfg.SetSecret("vpn:" + profile, save ? VpnPassBox.Password : null);
-            cfg.SetSecret(RdpSecretKey(host), save ? (UserBox.Text.Trim() + "\n" + PassBox.Password) : null);
+            // The VPN profile may be shared with another session (same .ovpn): never wipe its password.
+            if (profile.Length > 0) cfg.SetVpnSecret(profile, VpnPassBox.Password, save, ExistingRdpSession(cfg, host, port)?.Id);
+            cfg.SetSecret(ClientConfig.RdpKey(host, port), save ? (UserBox.Text.Trim() + "\n" + PassBox.Password) : null);
+            // Only values that now live in the store count as "prefilled" (safe to clear on a target
+            // change); creds typed but NOT saved stay the user's own and survive a host/port edit.
+            if (save) { _credsKey = ClientConfig.RdpKey(host, port); _prefillUser = UserBox.Text; _prefillPass = PassBox.Password; }
+            else _credsKey = null;
             cfg.Save();
         }
         catch { }

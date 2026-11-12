@@ -116,9 +116,49 @@ public sealed class ClientConfig
     {
         var i = VpnProfiles.FindIndex(x => x.Id == v.Id ||
             string.Equals(x.OvpnPath, v.OvpnPath, StringComparison.OrdinalIgnoreCase));
-        if (i >= 0) { v = v with { Id = VpnProfiles[i].Id }; VpnProfiles[i] = v; } else VpnProfiles.Add(v);
+        if (i >= 0)
+        {
+            // A profile is SHARED by every session using that .ovpn — merge, never blank it out:
+            // an empty username from one form must not erase the user another session relies on.
+            var old = VpnProfiles[i];
+            v = v with
+            {
+                Id = old.Id,
+                Username = string.IsNullOrWhiteSpace(v.Username) ? old.Username : v.Username,
+                SavePassword = v.SavePassword || Secrets.ContainsKey("vpn:" + v.OvpnPath),
+            };
+            VpnProfiles[i] = v;
+        }
+        else VpnProfiles.Add(v);
         Save();
         return v;
+    }
+
+    /// <summary>True if any session OTHER than <paramref name="exceptSessionId"/> uses the VPN profile at
+    /// <paramref name="ovpnPath"/> — its remembered password must then survive this session's changes.</summary>
+    public bool VpnUsedByOthers(string? ovpnPath, string? exceptSessionId)
+    {
+        if (string.IsNullOrWhiteSpace(ovpnPath)) return false;
+        var ids = VpnProfiles.Where(v => string.Equals(v.OvpnPath, ovpnPath, StringComparison.OrdinalIgnoreCase))
+                             .Select(v => v.Id).ToHashSet();
+        return Sessions.Any(s => s.Id != exceptSessionId && s.UseVpn && s.VpnProfileId != null && ids.Contains(s.VpnProfileId));
+    }
+
+    /// <summary>Remember/forget the VPN password for a (shared) profile on behalf of one session:
+    /// save → store it (an empty box keeps the existing one); don't save → forget it ONLY if no other
+    /// session uses this profile. One session's choice never wipes another session's VPN password.</summary>
+    public void SetVpnSecret(string ovpnPath, string? password, bool save, string? exceptSessionId)
+    {
+        if (string.IsNullOrWhiteSpace(ovpnPath)) return;
+        if (save) { if (!string.IsNullOrEmpty(password)) SetSecret("vpn:" + ovpnPath, password); }
+        else if (!VpnUsedByOthers(ovpnPath, exceptSessionId)) SetSecret("vpn:" + ovpnPath, null);
+    }
+
+    /// <summary>This session stopped using <paramref name="ovpnPath"/>: drop its password only if orphaned.</summary>
+    public void ReleaseVpnSecret(string? ovpnPath, string? exceptSessionId)
+    {
+        if (!string.IsNullOrWhiteSpace(ovpnPath) && !VpnUsedByOthers(ovpnPath, exceptSessionId))
+            SetSecret("vpn:" + ovpnPath, null);
     }
 
     public void DeleteVpn(string id)

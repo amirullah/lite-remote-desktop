@@ -99,14 +99,15 @@ public partial class SessionEditWindow : Window
             if (!File.Exists(path)) { StatusText.Text = Loc.T("Edit.Status.OvpnNotFound"); return; }
             var v = _cfg.UpsertVpn(new VpnProfile { OvpnPath = path, Username = VpnUserBox.Text.Trim(), SavePassword = saveVpnPwd });
             vpnId = v.Id;
-            _cfg.SetSecret("vpn:" + path, saveVpnPwd ? VpnPassBox.Password : null);
-            // Profile path changed → drop the old profile's orphaned secret.
+            // The profile (and its password) may be shared with other sessions: never wipe it for them.
+            _cfg.SetVpnSecret(path, VpnPassBox.Password, saveVpnPwd, _s.Id);
+            // Profile path changed → drop the old profile's secret, but only if no other session uses it.
             if (oldVpnPath != null && !string.Equals(oldVpnPath, path, StringComparison.OrdinalIgnoreCase))
-                _cfg.SetSecret("vpn:" + oldVpnPath, null);
+                _cfg.ReleaseVpnSecret(oldVpnPath, _s.Id);
         }
         else if (oldVpnPath != null)
         {
-            _cfg.SetSecret("vpn:" + oldVpnPath, null);   // VPN removed → clear its password too
+            _cfg.ReleaseVpnSecret(oldVpnPath, _s.Id);   // VPN removed here → clear only if now orphaned
         }
 
         // account secret
