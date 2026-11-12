@@ -17,6 +17,10 @@ public sealed class ClipboardBridge : IDisposable
     private const int WM_CLIPBOARDUPDATE = 0x031D;
     private readonly HwndSource _source;
     private ulong _lastFingerprint;
+    private uint _ownSequence; // clipboard sequence number right after our last SetClipboard
+
+    [DllImport("user32.dll")]
+    private static extern uint GetClipboardSequenceNumber();
 
     public event Action<ClipboardData>? ClipboardChanged;
 
@@ -38,6 +42,8 @@ public sealed class ClipboardBridge : IDisposable
 
     private void OnLocalClipboardChanged()
     {
+        if (_ownSequence != 0 && GetClipboardSequenceNumber() == _ownSequence) return; // our own write
+
         var data = ReadClipboard();
         if (data.Format == ClipboardFormat.Empty) return;
         var fp = ClipboardCodec.Fingerprint(data);
@@ -69,6 +75,9 @@ public sealed class ClipboardBridge : IDisposable
                     Clipboard.SetFileDropList(coll);
                     break;
             }
+            // Images are re-encoded differently on each side, so byte fingerprints alone let an
+            // image ping-pong forever. Remember the sequence number our write produced instead.
+            _ownSequence = GetClipboardSequenceNumber();
         }
         catch { /* clipboard contention is expected; ignore */ }
     }

@@ -29,10 +29,19 @@ public sealed class FrameSurface : IDisposable
     /// stopped (connection disposed) so no ApplyFrame is in flight.</summary>
     public void Dispose()
     {
-        try { _decoder?.Dispose(); } catch { }
-        _decoder = null;
+        // Under the decoder lock: a straggling frame may still be inside Decode on the network thread,
+        // and disposing the MF transform mid-call is a native use-after-free.
+        lock (_decoderLock)
+        {
+            _disposed = true;
+            try { _decoder?.Dispose(); } catch { }
+            _decoder = null;
+        }
         _bitmap = null;
     }
+
+    private readonly object _decoderLock = new();
+    private volatile bool _disposed;
 
     public event Action? SizeChanged;
     public int Width { get; private set; }
@@ -76,7 +85,7 @@ public sealed class FrameSurface : IDisposable
     /// <summary>Decode + blit a frame. Called sequentially from the network message loop.</summary>
     public void ApplyFrame(IReadOnlyList<Tile> tiles)
     {
-        if (tiles.Count == 0) return;
+        if (tiles.Count == 0 || _disposed) return;
 
         if (_codec == VideoCodec.H264)
         {
@@ -114,6 +123,15 @@ public sealed class FrameSurface : IDisposable
     /// Foundation transforms want single-threaded feeding.
     /// </summary>
     private void ApplyH264Frame(in Tile tile)
+    {
+        lock (_decoderLock)
+        {
+            if (_disposed) return; // never (re)create a decoder after Dispose — nothing would free it
+            ApplyH264FrameLocked(tile);
+        }
+    }
+
+    private void ApplyH264FrameLocked(in Tile tile)
     {
         var dec = EnsureDecoder();
         if (dec is null) return;

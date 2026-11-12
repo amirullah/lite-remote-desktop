@@ -16,6 +16,7 @@ public partial class SessionEditWindow : Window
 {
     private readonly SavedSession _s;
     private readonly ClientConfig _cfg;
+    private bool _vpnHadSecret;   // a VPN password was already stored for this session's profile
 
     public SessionEditWindow(SavedSession s, ClientConfig cfg)
     {
@@ -68,7 +69,9 @@ public partial class SessionEditWindow : Window
             VpnProfileBox.Text = vp.OvpnPath;
             VpnUserBox.Text = vp.Username;
             var vpass = cfg.GetSecret("vpn:" + vp.OvpnPath);
-            if (!string.IsNullOrEmpty(vpass)) { VpnPassBox.Password = vpass; SavePassCheck.IsChecked = true; }
+            // Don't tick SavePassCheck here: it also governs the account password, and a shared VPN
+            // secret must not silently opt this session into storing its account password.
+            if (!string.IsNullOrEmpty(vpass)) { VpnPassBox.Password = vpass; _vpnHadSecret = true; }
         }
     }
 
@@ -87,7 +90,9 @@ public partial class SessionEditWindow : Window
         bool remember = SavePassCheck.IsChecked == true;
         bool saveAccountPwd = remember && !isGoogle;                 // Google has no account password
         bool useVpn = UseVpnCheck.IsChecked == true && !string.IsNullOrWhiteSpace(VpnProfileBox.Text);
-        bool saveVpnPwd = useVpn && remember;                        // VPN saving is independent of Google
+        // VPN saving is independent of Google. A session that never opted in but finds a stored
+        // (shared) VPN secret keeps it while the box stays unticked; only un-ticking an opted-in session clears it.
+        bool saveVpnPwd = useVpn && (remember || (_vpnHadSecret && !_s.SavePassword));
 
         // Capture the currently-referenced VPN profile so we can clear its secret if VPN is removed/changed.
         string? oldVpnPath = _cfg.GetVpn(_s.VpnProfileId)?.OvpnPath;

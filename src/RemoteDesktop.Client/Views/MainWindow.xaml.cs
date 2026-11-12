@@ -133,7 +133,10 @@ public partial class MainWindow : Window
                 // tunnel; prefill the form and let the user re-pick it.
                 if (s.UseVpn && vpnPath == null) { SetStatus(Loc.T("Msg.VpnProfileMissing")); FallBackToForm(s); break; }
 
-                var cred = BuildSavedCredential(s);
+                // Profile uses user/pass auth but no password is remembered: ask instead of failing auth.
+                bool vpnNeedsPass = vpnPath != null && !string.IsNullOrEmpty(VpnUserBox.Text)
+                                    && string.IsNullOrEmpty(VpnPassBox.Password);
+                var cred = vpnNeedsPass ? null : BuildSavedCredential(s);
                 if (cred != null)
                 {
                     LaunchSession(new SessionRequest
@@ -163,7 +166,8 @@ public partial class MainWindow : Window
             VpnProfileBox.Text = vp.OvpnPath;
             VpnUserBox.Text = vp.Username;
             var vpass = _config.GetSecret("vpn:" + vp.OvpnPath);
-            if (!string.IsNullOrEmpty(vpass)) VpnPassBox.Password = vpass;
+            // Always overwrite: a password left from another profile must never be sent to this one.
+            VpnPassBox.Password = vpass ?? "";
             return vp.OvpnPath;
         }
         UseVpnCheck.IsChecked = false;
@@ -543,7 +547,8 @@ public partial class MainWindow : Window
 
     public void SetShellFullscreen(bool on)
     {
-        if (on == _shellFullscreen || _active == null) return;
+        // Only entering needs an active session; exiting must always work (e.g. from the '+' form).
+        if (on == _shellFullscreen || (on && _active == null)) return;
         if (on)
         {
             _fsPrevState = WindowState; _fsPrevStyle = WindowStyle;
@@ -555,7 +560,7 @@ public partial class MainWindow : Window
             var scr = System.Windows.Forms.Screen.FromHandle(new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle());
             SessionRegistry.FillScreen(this, scr);
             _shellFullscreen = true;
-            if (_active.Win is ISessionWindow sw) sw.SetChrome(false);
+            if (_active!.Win is ISessionWindow sw) sw.SetChrome(false);
             RepositionActive();
             _fsHover.Start();
         }

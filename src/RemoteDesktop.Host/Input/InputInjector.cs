@@ -13,12 +13,52 @@ public sealed class InputInjector
 {
     private readonly DisplayInfo _display;
 
+    // What the remote side currently holds down, so a session that dies mid-press can release it
+    // instead of leaving the local user with a stuck modifier or mouse button.
+    private readonly object _heldLock = new();
+    private readonly HashSet<(ushort Scan, ushort Vk, bool Extended)> _heldKeys = new();
+    private readonly HashSet<Shared.Models.MouseButton> _heldButtons = new();
+    private ushort _lastNx, _lastNy;
+
     public InputInjector(DisplayInfo display) => _display = display;
 
-    public void MouseMove(in MouseMoveEvent e) => SendMouseAbsolute(e.Nx, e.Ny, MOUSEEVENTF_MOVE, 0, 0);
+    public void MouseMove(in MouseMoveEvent e)
+    {
+        _lastNx = e.Nx; _lastNy = e.Ny;
+        SendMouseAbsolute(e.Nx, e.Ny, MOUSEEVENTF_MOVE, 0, 0);
+    }
 
     public void MouseButton(in MouseButtonEvent e)
     {
+        _lastNx = e.Nx; _lastNy = e.Ny;
+        lock (_heldLock)
+        {
+            if (e.Down) _heldButtons.Add(e.Button);
+            else _heldButtons.Remove(e.Button);
+        }
+        SendButton(e.Button, e.Down, e.Nx, e.Ny);
+    }
+
+    /// <summary>Sends an up event for every key and mouse button the remote side still holds.</summary>
+    public void ReleaseAll()
+    {
+        (ushort Scan, ushort Vk, bool Extended)[] keys;
+        Shared.Models.MouseButton[] buttons;
+        lock (_heldLock)
+        {
+            keys = _heldKeys.ToArray();
+            buttons = _heldButtons.ToArray();
+            _heldKeys.Clear();
+            _heldButtons.Clear();
+        }
+        foreach (var k in keys) SendKey(k.Scan, k.Vk, k.Extended, down: false);
+        foreach (var b in buttons) SendButton(b, down: false, _lastNx, _lastNy);
+    }
+
+    private void SendButton(Shared.Models.MouseButton button, bool down, ushort nx, ushort ny)
+    {
+        var e = (Button: button, Down: down);
+
         var (flag, data) = e.Button switch
         {
             Shared.Models.MouseButton.Left => (e.Down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP, 0u),
@@ -28,7 +68,7 @@ public sealed class InputInjector
             Shared.Models.MouseButton.X2 => (e.Down ? MOUSEEVENTF_XDOWN : MOUSEEVENTF_XUP, (uint)XBUTTON2),
             _ => (0u, 0u),
         };
-        if (flag != 0) SendMouseAbsolute(e.Nx, e.Ny, MOUSEEVENTF_MOVE | flag, data, 0);
+        if (flag != 0) SendMouseAbsolute(nx, ny, MOUSEEVENTF_MOVE | flag, data, 0);
     }
 
     public void MouseWheel(in MouseWheelEvent e)
@@ -39,20 +79,32 @@ public sealed class InputInjector
 
     public void Key(in KeyEventData e)
     {
+        ushort vk = e.ScanCode == 0 ? e.VirtualKey : (ushort)0;
+        var id = (e.ScanCode, vk, e.Extended);
+        lock (_heldLock)
+        {
+            if (e.Down) _heldKeys.Add(id);
+            else _heldKeys.Remove(id);
+        }
+        SendKey(e.ScanCode, e.VirtualKey, e.Extended, e.Down);
+    }
+
+    private static void SendKey(ushort scanCode, ushort virtualKey, bool extended, bool down)
+    {
         var input = new INPUT { type = INPUT_KEYBOARD };
         input.U.ki = new KEYBDINPUT
         {
             wVk = 0,
-            wScan = e.ScanCode,
+            wScan = scanCode,
             dwFlags = KEYEVENTF_SCANCODE
-                      | (e.Down ? 0u : KEYEVENTF_KEYUP)
-                      | (e.Extended ? KEYEVENTF_EXTENDEDKEY : 0u),
+                      | (down ? 0u : KEYEVENTF_KEYUP)
+                      | (extended ? KEYEVENTF_EXTENDEDKEY : 0u),
         };
         // If we somehow have no scancode, fall back to the virtual key.
-        if (e.ScanCode == 0)
+        if (scanCode == 0)
         {
-            input.U.ki.wVk = e.VirtualKey;
-            input.U.ki.dwFlags = e.Down ? 0u : KEYEVENTF_KEYUP;
+            input.U.ki.wVk = virtualKey;
+            input.U.ki.dwFlags = down ? 0u : KEYEVENTF_KEYUP;
         }
         SendOne(input);
     }

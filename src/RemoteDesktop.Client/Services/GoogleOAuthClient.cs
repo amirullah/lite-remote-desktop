@@ -14,7 +14,7 @@ namespace RemoteDesktop.Client.Services;
 /// default browser, receive the authorization code on the loopback redirect, and exchange it for an
 /// <c>id_token</c>. That id_token is what we hand to the host, which verifies it offline.
 ///
-/// No client secret is embedded (native apps are public clients); PKCE protects the code exchange.
+/// PKCE protects the code exchange; the Desktop client's (non-confidential) secret is sent only if configured.
 /// </summary>
 public sealed class GoogleOAuthClient
 {
@@ -22,12 +22,15 @@ public sealed class GoogleOAuthClient
     private const string TokenEndpoint = "https://oauth2.googleapis.com/token";
 
     private readonly string _clientId;
+    private readonly string? _clientSecret;
     private readonly HttpClient _http;
 
-    public GoogleOAuthClient(string clientId, HttpClient? http = null)
+    public GoogleOAuthClient(string clientId, HttpClient? http = null, string? clientSecret = null)
     {
         _clientId = clientId;
         _http = http ?? new HttpClient();
+        // Google's token endpoint demands client_secret for "Desktop app" clients even with PKCE.
+        _clientSecret = !string.IsNullOrWhiteSpace(clientSecret) ? clientSecret : ClientConfig.Shared.GoogleClientSecret;
     }
 
     public async Task<string?> SignInAsync(CancellationToken ct = default)
@@ -71,17 +74,25 @@ public sealed class GoogleOAuthClient
 
     private async Task<string?> ExchangeCodeAsync(string code, string verifier, string redirectUri, CancellationToken ct)
     {
-        var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        var fields = new Dictionary<string, string>
         {
             ["client_id"] = _clientId,
             ["code"] = code,
             ["code_verifier"] = verifier,
             ["grant_type"] = "authorization_code",
             ["redirect_uri"] = redirectUri,
-        });
+        };
+        if (!string.IsNullOrWhiteSpace(_clientSecret)) fields["client_secret"] = _clientSecret!;
+        var form = new FormUrlEncodedContent(fields);
 
         var response = await _http.PostAsync(TokenEndpoint, form, ct).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode) return null;
+        if (!response.IsSuccessStatusCode)
+        {
+            // Surface Google's reason (e.g. "client_secret is missing") instead of a silent null.
+            string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            Diag.Log($"Google token exchange failed ({(int)response.StatusCode}): {body}");
+            return null;
+        }
 
         var token = await response.Content.ReadFromJsonAsync<TokenResponse>(cancellationToken: ct).ConfigureAwait(false);
         return token?.IdToken;

@@ -29,15 +29,18 @@ public static class ViewerConnection
     public static async Task<ConnectOutcome> ConnectAsync(
         string host, int port, string password, CancellationToken ct = default)
     {
+        var tcp = new TcpClient();
         try
         {
-            var tcp = new TcpClient();
             await tcp.ConnectAsync(host, port, ct).ConfigureAwait(false);
-            return await AuthenticateOverStreamAsync(tcp.GetStream(), host, $"{host}:{port}", password, ct)
+            var outcome = await AuthenticateOverStreamAsync(tcp.GetStream(), host, $"{host}:{port}", password, ct)
                 .ConfigureAwait(false);
+            if (!outcome.Ok) tcp.Dispose(); // don't leave the socket open until GC on a failed attempt
+            return outcome;
         }
         catch (Exception ex)
         {
+            tcp.Dispose();
             return new ConnectOutcome(null, false, ex.Message, null);
         }
     }
@@ -45,9 +48,9 @@ public static class ViewerConnection
     public static async Task<ConnectOutcome> ConnectViaRelayAsync(
         string relayHost, int relayPort, string id, string password, CancellationToken ct = default)
     {
+        var tcp = new TcpClient();
         try
         {
-            var tcp = new TcpClient();
             await tcp.ConnectAsync(relayHost, relayPort, ct).ConfigureAwait(false);
             var stream = tcp.GetStream();
 
@@ -56,12 +59,18 @@ public static class ViewerConnection
             await RelayProtocol.SendAsync(stream, new RelayMsg { Op = "connect", Id = id }, ct).ConfigureAwait(false);
             var reply = await RelayProtocol.ReadAsync(stream, ct).ConfigureAwait(false);
             if (reply is null || !reply.Ok)
+            {
+                tcp.Dispose();
                 return new ConnectOutcome(null, false, reply?.Error ?? "Relay did not answer.", null);
+            }
 
-            return await AuthenticateOverStreamAsync(stream, id, $"id:{id}", password, ct).ConfigureAwait(false);
+            var outcome = await AuthenticateOverStreamAsync(stream, id, $"id:{id}", password, ct).ConfigureAwait(false);
+            if (!outcome.Ok) tcp.Dispose();
+            return outcome;
         }
         catch (Exception ex)
         {
+            tcp.Dispose();
             return new ConnectOutcome(null, false, ex.Message, null);
         }
     }
@@ -74,10 +83,11 @@ public static class ViewerConnection
         string? fingerprint = null;
         var pinCheck = PinCheck.FirstUse;
         bool saveOnSuccess = false;
+        SslStream? ssl = null;
 
         try
         {
-            var ssl = new SslStream(inner, leaveInnerStreamOpen: false,
+            ssl = new SslStream(inner, leaveInnerStreamOpen: false,
                 userCertificateValidationCallback: (_, cert, _, _) =>
                 {
                     if (cert is null) return false;
@@ -89,15 +99,18 @@ public static class ViewerConnection
                     return true;
                 });
 
+            // The timeout covers the TLS handshake too: a peer that accepts TCP but never finishes TLS
+            // (wrong port, stalled relay splice) must not hang the connect forever.
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(15));
+
             await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
             {
                 TargetHost = targetHost,
                 EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
-            }).ConfigureAwait(false);
+            }, timeout.Token).ConfigureAwait(false);
 
             channel = new MessageChannel(ssl);
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(15));
 
             await foreach (var msg in channel.Inbound.ReadAllAsync(timeout.Token).ConfigureAwait(false))
             {
@@ -126,12 +139,14 @@ public static class ViewerConnection
         catch (AuthenticationException) when (pinCheck == PinCheck.Mismatch)
         {
             if (channel is not null) await channel.DisposeAsync().ConfigureAwait(false);
+            else ssl?.Dispose(); // handshake failed before the channel took ownership
             return new ConnectOutcome(null, false,
                 "Host key changed — refused (possible man-in-the-middle).", Pretty(fingerprint));
         }
         catch (Exception ex)
         {
             if (channel is not null) await channel.DisposeAsync().ConfigureAwait(false);
+            else ssl?.Dispose(); // handshake failed before the channel took ownership
             return new ConnectOutcome(null, false, ex.Message, Pretty(fingerprint));
         }
     }

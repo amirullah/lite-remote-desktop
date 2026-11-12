@@ -54,11 +54,17 @@ public sealed class HostSession
     private double _measuredMbps;
     private int _measuredFps;
 
-    public HostSession(MessageChannel channel, HostConfig config, ILogger log)
+    // Invoked with the credential check's outcome before the result is sent, so the server can evict
+    // the previous controller only on success and throttle (delay) failed guesses.
+    private readonly Func<bool, CancellationToken, Task>? _onAuthResult;
+
+    public HostSession(MessageChannel channel, HostConfig config, ILogger log,
+        Func<bool, CancellationToken, Task>? onAuthResult = null)
     {
         _channel = channel;
         _config = config;
         _log = log;
+        _onAuthResult = onAuthResult;
         if (config.AllowGoogle && !string.IsNullOrEmpty(config.GoogleClientId))
             _google = new GoogleIdTokenVerifier(config.GoogleClientId);
     }
@@ -94,6 +100,7 @@ public sealed class HostSession
         }
         finally
         {
+            ReleaseHeldInput();
             _running = false;
             // The capture loop owns every capture object: disposing one here while a capture call
             // is still in flight on the pipeline thread crashes the whole process inside the
@@ -157,7 +164,9 @@ public sealed class HostSession
                 _ => false,
             };
 
-            var token = ok ? Convert.ToHexString(RandomNumberGenerator.GetBytes(24)) : "";
+            if (_onAuthResult != null) await _onAuthResult(ok, ct).ConfigureAwait(false);
+
+            var token = ok ?Convert.ToHexString(RandomNumberGenerator.GetBytes(24)) : "";
             await _channel.SendAsync(
                 AuthProtocol.Result(new AuthResultData(ok, ok ? "ok" : "Invalid credentials", token)), ct)
                 .ConfigureAwait(false);
@@ -258,6 +267,27 @@ public sealed class HostSession
     }
 
     /// <summary>
+    /// The viewer may vanish mid-press (drop, eviction, crash) without sending the KeyUp/ButtonUp, so
+    /// release whatever it still holds. In agent mode this must run on the input worker (the thread
+    /// bound to the input desktop), so queue it and give the worker a moment before it is stopped.
+    /// </summary>
+    private void ReleaseHeldInput()
+    {
+        var injector = _injector;
+        if (injector is null) return;
+        if (DesktopFollow.Enabled && _inputThread != null)
+        {
+            _inputQueue.Enqueue(injector.ReleaseAll);
+            var deadline = Environment.TickCount64 + 300;
+            while (!_inputQueue.IsEmpty && Environment.TickCount64 < deadline) Thread.Sleep(10);
+        }
+        else if (!DesktopFollow.Enabled)
+        {
+            try { injector.ReleaseAll(); } catch { }
+        }
+    }
+
+    /// <summary>
     /// Supervises input injection for agent mode. A thread that has ever injected on one desktop cannot
     /// reliably inject on the secure desktop after switching — the input association stays tainted. So
     /// we spawn a FRESH worker thread per input desktop: each worker binds cleanly to the current input
@@ -267,7 +297,9 @@ public sealed class HostSession
     private void InputPumpLoop(CancellationToken ct)
     {
         Service.AgentDiag.Log("input supervisor started");
-        while (_running && !ct.IsCancellationRequested)
+        // Keyed off _running only (cleared in RunAsync's finally after ReleaseHeldInput), so an evicted
+        // session's final key/button releases still get injected after ct is cancelled.
+        while (_running)
         {
             var worker = new Thread(() => InputWorker(ct)) { IsBackground = true, Name = "InputWorker" };
             worker.Start();
@@ -281,7 +313,7 @@ public sealed class HostSession
         DesktopFollow.BindCurrentThreadToInput();
         string bound = DesktopFollow.BoundThreadDesktop ?? "";
         if (bound.Length == 0) { Thread.Sleep(120); return; } // couldn't bind; supervisor retries
-        while (_running && !ct.IsCancellationRequested)
+        while (_running)
         {
             // The input desktop changed (lock/unlock/UAC) — exit so a fresh clean worker binds to it.
             if (DesktopFollow.CurrentInputDesktopName() != bound) return;
@@ -296,6 +328,9 @@ public sealed class HostSession
 
         _displays = displays;
         _settings = s;
+        // Release anything the old injector still holds so a display switch can't strand a key.
+        var oldInjector = _injector;
+        if (oldInjector != null) RouteInput(oldInjector.ReleaseAll);
         _injector = new InputInjector(display);
         _adaptive ??= new AdaptiveController(s, display.RefreshHz);
         _privacy?.Apply(s.LockHostInput, s.BlankHostScreen);
@@ -312,6 +347,7 @@ public sealed class HostSession
         // H.264 and an encoder initialises for the current geometry; otherwise we stay on JPEG tiles.
         H264Encoder? h264 = null;
         var activeCodec = VideoCodec.JpegTiles;
+        VideoCodec? negotiatedFor = null; // codec the client asked for at the last negotiation
         var h264Tiles = new List<Tile>(1);
         uint frameId = 0;
         int idleFrames = 0;
@@ -461,8 +497,11 @@ public sealed class HostSession
                 // change or when the client toggles the codec.
                 var desiredCodec = _settings.PreferredCodec == VideoCodec.H264 ? VideoCodec.H264 : VideoCodec.JpegTiles;
                 bool geoChanged = announced is null || announced.Width != frame.Width || announced.Height != frame.Height;
-                if (geoChanged || desiredCodec != activeCodec)
+                // Compare against what was last *requested*, not what is active: a failed H.264 init
+                // leaves active=JPEG, and retrying every frame would force a keyframe + VideoConfig each time.
+                if (geoChanged || desiredCodec != negotiatedFor)
                 {
+                    negotiatedFor = desiredCodec;
                     if (h264 != null) { h264.Dispose(); h264 = null; }
                     activeCodec = VideoCodec.JpegTiles;
                     if (desiredCodec == VideoCodec.H264)

@@ -14,6 +14,9 @@ public sealed class ClientConfig
     public List<SavedConnection> Recent { get; set; } = new();
     public SessionSettings DefaultSettings { get; set; } = new();
     public string? GoogleClientId { get; set; }
+    /// <summary>Secret of the Google "Desktop app" OAuth client. Google requires it at the token endpoint even
+    /// with PKCE, and documents it as non-confidential for installed apps.</summary>
+    public string? GoogleClientSecret { get; set; }
 
     /// <summary>UI theme preference: "system" | "dark" | "light".</summary>
     public string Theme { get; set; } = "system";
@@ -177,7 +180,7 @@ public sealed class ClientConfig
     private void MigrateLegacy()
     {
         bool hasLegacy = Recent.Count > 0 ||
-                         Secrets.Keys.Any(k => k.StartsWith("rdp:") || (k.StartsWith("vpn:") && k.Contains('\\')));
+                         Secrets.Keys.Any(k => IsLegacyRdpKey(k) || (k.StartsWith("vpn:") && k.Contains('\\')));
         if (Sessions.Count > 0 || !hasLegacy) return;
 
         // NOTE: we do NOT re-key the existing rdp:<host> / vpn:<path> secrets — RdpWindow still loads
@@ -203,7 +206,7 @@ public sealed class ClientConfig
             });
         }
 
-        foreach (var key in Secrets.Keys.Where(k => k.StartsWith("rdp:")).ToList())
+        foreach (var key in Secrets.Keys.Where(IsLegacyRdpKey).ToList())
         {
             var host = key.Substring(4);
             var combo = GetSecret(key);
@@ -214,6 +217,11 @@ public sealed class ClientConfig
 
         Save();
     }
+
+    /// <summary>Old "rdp:&lt;host&gt;" key. Current <see cref="RdpKey"/> keys ("rdp:&lt;host&gt;:&lt;port&gt;") are not
+    /// legacy — treating them so would resurrect deleted sessions with "host:port" as the host.</summary>
+    private static bool IsLegacyRdpKey(string k) =>
+        k.StartsWith("rdp:") && !System.Text.RegularExpressions.Regex.IsMatch(k, @"^rdp:.+:\d+$");
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
@@ -236,7 +244,13 @@ public sealed class ClientConfig
                 ? JsonSerializer.Deserialize<ClientConfig>(File.ReadAllText(AppPaths.ClientConfig)) ?? new()
                 : new();
         }
-        catch { cfg = new ClientConfig(); }
+        catch (Exception ex)
+        {
+            // Keep the unreadable file aside so the next Save() can't silently destroy every session/secret.
+            Diag.Log($"client.json unreadable, starting fresh: {ex.Message}");
+            try { File.Copy(AppPaths.ClientConfig, $"{AppPaths.ClientConfig}.corrupt-{DateTime.Now:yyyyMMddHHmmss}", true); } catch { }
+            cfg = TryLoadBackup() ?? new ClientConfig();
+        }
         try { cfg.MigrateLegacy(); } catch { }
         try { cfg.ImportVpnProfilesIntoStore(); } catch { }
         return cfg;
@@ -294,7 +308,23 @@ public sealed class ClientConfig
     public void Save()
     {
         AppPaths.EnsureRoot();
-        File.WriteAllText(AppPaths.ClientConfig, JsonSerializer.Serialize(this, Json));
+        // Write-then-swap so a crash mid-write never leaves a truncated client.json; the previous
+        // version is kept as .bak for Load() to fall back on.
+        var path = AppPaths.ClientConfig;
+        var tmp = path + ".tmp";
+        File.WriteAllText(tmp, JsonSerializer.Serialize(this, Json));
+        if (File.Exists(path)) File.Replace(tmp, path, path + ".bak", ignoreMetadataErrors: true);
+        else File.Move(tmp, path);
+    }
+
+    private static ClientConfig? TryLoadBackup()
+    {
+        try
+        {
+            var bak = AppPaths.ClientConfig + ".bak";
+            return File.Exists(bak) ? JsonSerializer.Deserialize<ClientConfig>(File.ReadAllText(bak)) : null;
+        }
+        catch { return null; }
     }
 }
 

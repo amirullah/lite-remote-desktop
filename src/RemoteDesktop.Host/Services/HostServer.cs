@@ -140,24 +140,139 @@ public sealed class HostServer : IAsyncDisposable
             EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
             CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
         };
-        await ssl.AuthenticateAsServerAsync(options, ct).ConfigureAwait(false);
-        _log.LogInformation("TLS established with {Remote} ({Protocol})", remote, ssl.SslProtocol);
+        // Throttle key: the peer IP for direct clients; all relay streams share one bucket since the
+        // relay hides the real source.
+        string throttleKey = remote.StartsWith("relay/", StringComparison.Ordinal) ? "relay" : StripPort(remote);
+        if (IsLockedOut(throttleKey))
+        {
+            _log.LogWarning("Rejected {Remote}: too many failed logins, temporarily locked out.", remote);
+            transport.Dispose();
+            return;
+        }
+        // Bound concurrent pre-auth handshakes so parallel connections can't multiply guesses or pile
+        // up Argon2 work (CPU/memory DoS).
+        if (!await _handshakeSlots.WaitAsync(TimeSpan.FromSeconds(10), ct).ConfigureAwait(false))
+        {
+            _log.LogWarning("Rejected {Remote}: too many concurrent handshakes.", remote);
+            transport.Dispose();
+            return;
+        }
+        int slotHeld = 1;
+        void ReleaseSlot() { if (Interlocked.Exchange(ref slotHeld, 0) == 1) _handshakeSlots.Release(); }
 
-        // Evict any existing controller — single-seat by default.
-        _currentCts?.Cancel();
         var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        _currentCts = sessionCts;
+        try
+        {
+            // The TLS handshake holds a pre-auth slot, so it MUST be bounded: otherwise 8 silent peers
+            // (no credentials needed) could pin every slot and lock all real users out.
+            using (var hsCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+            {
+                hsCts.CancelAfter(TimeSpan.FromSeconds(10));
+                try { await ssl.AuthenticateAsServerAsync(options, hsCts.Token).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    _log.LogWarning("TLS handshake with {Remote} timed out.", remote);
+                    ssl.Dispose();   // also closes the transport (relay streams have no other owner)
+                    return;
+                }
+            }
+            _log.LogInformation("TLS established with {Remote} ({Protocol})", remote, ssl.SslProtocol);
 
-        await using var channel = new MessageChannel(ssl);
-        var session = new HostSession(channel, _config, _log);
-        _current = session;
-        await session.RunAsync(sessionCts.Token).ConfigureAwait(false);
+            await using var channel = new MessageChannel(ssl);
+            HostSession? session = null;
+            session = new HostSession(channel, _config, _log, async (ok, authCt) =>
+            {
+                ReleaseSlot();
+                if (ok)
+                {
+                    ResetFailures(throttleKey);
+                    // Evict the existing controller only once the newcomer has proven who it is —
+                    // otherwise any unauthenticated peer could knock the active user off. Single-seat.
+                    var previous = Interlocked.Exchange(ref _currentCts, sessionCts);
+                    if (previous != null)
+                    {
+                        try { previous.Cancel(); } catch (ObjectDisposedException) { }
+                    }
+                    _current = session;
+                }
+                else
+                {
+                    var delay = RecordFailure(throttleKey);
+                    _log.LogWarning("Failed login from {Remote}; delaying {Delay}s.", remote, delay.TotalSeconds);
+                    await Task.Delay(delay, authCt).ConfigureAwait(false);
+                }
+            });
+            await session.RunAsync(sessionCts.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            ReleaseSlot();
+            // Clear the seat only if it is still ours; a newer session may already own it.
+            Interlocked.CompareExchange(ref _currentCts, null, sessionCts);
+            sessionCts.Dispose();
+        }
+    }
+
+    // ---------------- failed-login throttling ----------------
+
+    private const int MaxFailures = 5;
+    private static readonly TimeSpan FailureWindow = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(5);
+    private readonly SemaphoreSlim _handshakeSlots = new(8, 8);
+    private readonly object _failLock = new();
+    private readonly Dictionary<string, (int Count, DateTime First, DateTime LockedUntil)> _failures = new();
+
+    private static string StripPort(string remote)
+    {
+        // "1.2.3.4:5678" / "[::1]:5678" -> address only, so reconnects from new ports share a bucket.
+        if (IPEndPoint.TryParse(remote, out var ep)) return ep.Address.ToString();
+        return remote;
+    }
+
+    private bool IsLockedOut(string key)
+    {
+        lock (_failLock)
+            return _failures.TryGetValue(key, out var f) && f.LockedUntil > DateTime.UtcNow;
+    }
+
+    private void ResetFailures(string key)
+    {
+        lock (_failLock) _failures.Remove(key);
+    }
+
+    /// <summary>Counts a failed login and returns the backoff to apply before answering (1s doubling, max 30s).</summary>
+    private TimeSpan RecordFailure(string key)
+    {
+        lock (_failLock)
+        {
+            var now = DateTime.UtcNow;
+            // Drop stale entries so the table can't grow without bound.
+            if (_failures.Count > 1024)
+                foreach (var k in _failures.Where(p => now - p.Value.First > FailureWindow && p.Value.LockedUntil < now)
+                                           .Select(p => p.Key).ToList())
+                    _failures.Remove(k);
+
+            (int Count, DateTime First, DateTime LockedUntil) f =
+                _failures.TryGetValue(key, out var cur) && now - cur.First <= FailureWindow
+                    ? cur : (0, now, DateTime.MinValue);
+            f.Count++;
+            // The shared relay bucket only gets backoff, never a lockout — one attacker on the relay
+            // must not be able to lock every legitimate ID-based user out.
+            if (f.Count >= MaxFailures && key != "relay")
+            {
+                f.LockedUntil = now + LockoutDuration;
+                _log.LogWarning("Locking out {Key} for {Min} min after {Count} failed logins.",
+                    key, LockoutDuration.TotalMinutes, f.Count);
+            }
+            _failures[key] = f;
+            return TimeSpan.FromSeconds(Math.Min(30, 1 << Math.Min(f.Count - 1, 5)));
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
         _cts?.Cancel();
-        _currentCts?.Cancel();
+        try { _currentCts?.Cancel(); } catch (ObjectDisposedException) { }
         if (_relay != null) await _relay.DisposeAsync().ConfigureAwait(false);
         _listener?.Stop();
         _certificate.Dispose();

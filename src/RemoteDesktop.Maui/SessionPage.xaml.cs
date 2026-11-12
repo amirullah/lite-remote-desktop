@@ -88,11 +88,15 @@ public partial class SessionPage : ContentPage
             try
             {
                 await _session.RunAsync(new SessionSettings { PreferredCodec = VideoCodec.H264 }, _cts.Token);
+                // RunAsync returns normally when the host closes or the link drops: say so instead of
+                // leaving the resolution label over a frozen frame.
+                if (!_cts.IsCancellationRequested)
+                    Dispatcher.Dispatch(() => { _session = null; StatusLabel.Text = "Session ended (host disconnected)"; });
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                Dispatcher.Dispatch(() => StatusLabel.Text = "Session ended: " + ex.Message);
+                Dispatcher.Dispatch(() => { _session = null; StatusLabel.Text = "Session ended: " + ex.Message; });
             }
         });
     }

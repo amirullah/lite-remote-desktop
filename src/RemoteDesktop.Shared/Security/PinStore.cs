@@ -11,7 +11,7 @@ public sealed class PinStore
 {
     private readonly string _path;
     private readonly Dictionary<string, string> _pins;
-    private readonly bool _corrupt;
+    private bool _corrupt;
 
     public PinStore(string path)
     {
@@ -30,6 +30,9 @@ public sealed class PinStore
     {
         _pins[endpoint] = fingerprint;
         Save();
+        // The user re-verified and a clean file now exists on disk; leave fail-closed mode so
+        // this process behaves like a fresh load of that file instead of nagging until restart.
+        _corrupt = false;
     }
 
     /// <summary>Returns true if the endpoint is unknown (first use) or the fingerprint matches the pin.</summary>

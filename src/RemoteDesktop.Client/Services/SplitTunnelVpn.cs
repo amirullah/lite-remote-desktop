@@ -181,7 +181,14 @@ public sealed class SplitTunnelVpn : IAsyncDisposable
             }
         }
         catch (Exception ex) { Services.Diag.Log("[vpn] read loop ended: " + ex.GetType().Name); }
-        finally { _connected = false; }
+        finally
+        {
+            _connected = false;
+            // Engine died (socket EOF) before CONNECTED/EXITING: fail the connect now instead of
+            // waiting out the 75s timeout. No-op if the TCS already completed.
+            if (connectedTcs.TrySetResult(false) && !ct.IsCancellationRequested)
+                status("VPN berhenti (lihat log).");
+        }
     }
 
     private async Task ReleaseHoldAsync()

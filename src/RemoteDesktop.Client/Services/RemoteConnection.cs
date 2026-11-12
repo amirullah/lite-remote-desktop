@@ -29,6 +29,7 @@ public sealed class RemoteConnection : IAsyncDisposable
     private readonly PinStore _pins;
     private MessageChannel? _channel;
     private CancellationTokenSource? _cts;
+    private Task? _loopTask;
 
     public ConnectionState State { get; private set; } = ConnectionState.Idle;
 
@@ -62,9 +63,10 @@ public sealed class RemoteConnection : IAsyncDisposable
         var endpoint = $"{host}:{port}";
         SetState(ConnectionState.Connecting, $"Connecting to {endpoint}…");
 
+        TcpClient? tcp = null;
         try
         {
-            var tcp = bindAddress is null
+            tcp = bindAddress is null
                 ? new TcpClient { NoDelay = true }
                 : new TcpClient(new System.Net.IPEndPoint(bindAddress, 0)) { NoDelay = true };
             await tcp.ConnectAsync(host, port, _cts.Token).ConfigureAwait(false);
@@ -73,11 +75,13 @@ public sealed class RemoteConnection : IAsyncDisposable
         }
         catch (AuthenticationException ex)
         {
+            if (_channel is null) tcp?.Dispose(); // no channel owns the socket yet — don't leave it to the GC
             SetState(ConnectionState.Failed, $"TLS/certificate error: {ex.Message}");
             return false;
         }
         catch (Exception ex)
         {
+            if (_channel is null) tcp?.Dispose();
             SetState(ConnectionState.Failed, $"Connection failed: {ex.Message}");
             return false;
         }
@@ -95,13 +99,14 @@ public sealed class RemoteConnection : IAsyncDisposable
         var id = Shared.Relay.RelayProtocol.NormalizeId(hostId);
         SetState(ConnectionState.Connecting, $"Reaching ID {Shared.Relay.RelayProtocol.FormatId(id)}…");
 
+        TcpClient? tcp = null;
         try
         {
             var parts = relayAddress.Split(':', 2);
             string rhost = parts[0].Trim();
             int rport = parts.Length > 1 && int.TryParse(parts[1], out var p) ? p : Shared.Relay.RelayProtocol.DefaultPort;
 
-            var tcp = new TcpClient { NoDelay = true };
+            tcp = new TcpClient { NoDelay = true };
             await tcp.ConnectAsync(rhost, rport, _cts.Token).ConfigureAwait(false);
             var raw = tcp.GetStream();
 
@@ -110,6 +115,7 @@ public sealed class RemoteConnection : IAsyncDisposable
             var reply = await Shared.Relay.RelayProtocol.ReadAsync(raw, _cts.Token).ConfigureAwait(false);
             if (reply is not { Ok: true })
             {
+                tcp.Dispose(); // release the relay slot instead of leaving a half-spliced socket open
                 SetState(ConnectionState.Failed, reply?.Error ?? "Relay could not reach that ID.");
                 return false;
             }
@@ -119,6 +125,7 @@ public sealed class RemoteConnection : IAsyncDisposable
         }
         catch (Exception ex)
         {
+            if (_channel is null) tcp?.Dispose();
             SetState(ConnectionState.Failed, $"Relay connection failed: {ex.Message}");
             return false;
         }
@@ -130,12 +137,20 @@ public sealed class RemoteConnection : IAsyncDisposable
         var ssl = new SslStream(transport, leaveInnerStreamOpen: false,
             (_, cert, _, _) => ValidateCertificate(pinKey, cert));
 
-        await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+        try
         {
-            TargetHost = targetHost,
-            EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
-            CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
-        }, ct).ConfigureAwait(false);
+            await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+            {
+                TargetHost = targetHost,
+                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
+            }, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            ssl.Dispose(); // also closes the transport (leaveInnerStreamOpen: false)
+            throw;
+        }
 
         _channel = new MessageChannel(ssl);
 
@@ -149,7 +164,7 @@ public sealed class RemoteConnection : IAsyncDisposable
         await _channel.SendAsync(PayloadCodec.Settings(initial), ct).ConfigureAwait(false);
         Diag.Log($"[proto] authenticated; SettingsUpdate sent (codec={initial.PreferredCodec}, fps={initial.FrameRateMode}) — host should start capture");
         SetState(ConnectionState.Connected, "Connected.");
-        _ = Task.Run(() => MessageLoopAsync(_cts!.Token));
+        _loopTask = Task.Run(() => MessageLoopAsync(_cts!.Token));
         return true;
     }
 
@@ -286,6 +301,12 @@ public sealed class RemoteConnection : IAsyncDisposable
         try { _channel?.TrySend(Message.Empty(MessageType.Bye)); } catch { }
         _cts?.Cancel();
         if (_channel != null) await _channel.DisposeAsync().ConfigureAwait(false);
+        // Let the loop finish its in-flight frame so the caller can then release the decoder safely.
+        // Bounded, so a DisposeAsync reached from the loop itself can't deadlock on its own task.
+        if (_loopTask is { } loop)
+        {
+            try { await Task.WhenAny(loop, Task.Delay(2000)).ConfigureAwait(false); } catch { }
+        }
         _cts?.Dispose();
     }
 }

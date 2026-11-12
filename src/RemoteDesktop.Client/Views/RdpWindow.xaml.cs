@@ -22,6 +22,8 @@ public partial class RdpWindow : Window, Services.ISessionWindow
     private readonly RdpHost _rdp = new();
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private bool _wasConnected;
+    private bool _closed;            // window closed — async connect continuations must bail out
+    private bool _dropPendingReveal; // session dropped while fullscreen — reveal Retry/form on exit
     private bool _rdpReady;   // true once the ActiveX control is attached & created without error
     private SplitTunnelVpn? _vpn;   // active split tunnel for this session, if any
     private readonly DispatcherTimer _resize = new() { Interval = TimeSpan.FromMilliseconds(300) };
@@ -84,6 +86,7 @@ public partial class RdpWindow : Window, Services.ISessionWindow
 
         Closed += (_, _) =>
         {
+            _closed = true;
             SessionRegistry.Changed -= OnSessionsChanged;
             SessionRegistry.Unregister(this);
             _poll.Stop(); _hover.Stop(); _watchdog.Stop();
@@ -306,6 +309,7 @@ public partial class RdpWindow : Window, Services.ISessionWindow
             string vpn = VpnBox.Text.Trim();
             if (vpn.Length > 0 && !await IsReachableAsync(host, port, 700))
             {
+                if (_closed) return;   // closed while probing — don't start a tunnel nobody will tear down
                 RememberVpn(vpn);
                 if (!SplitTunnelVpn.EngineAvailable)
                 {
@@ -326,11 +330,16 @@ public partial class RdpWindow : Window, Services.ISessionWindow
 
                 // Bring up a split tunnel that routes ONLY this host through the VPN.
                 await DisposeVpnAsync();
+                if (_closed) return;
                 _vpn = new SplitTunnelVpn();
                 bool up = await _vpn.ConnectAsync(vpn, VpnUserBox.Text.Trim(), VpnPassBox.Password, host, Status, CancellationToken.None);
+                // The Closed handler already ran with no/old tunnel — tear this one down ourselves.
+                if (_closed) { await DisposeVpnAsync(); return; }
                 if (!up) { await DisposeVpnAsync(); RevealForm(Loc.T("Rdp.Status.VpnStartFailed")); return; }
 
-                if (!await WaitReachableAsync(host, port, TimeSpan.FromSeconds(15)))
+                bool reachable = await WaitReachableAsync(host, port, TimeSpan.FromSeconds(15));
+                if (_closed) { await DisposeVpnAsync(); return; }
+                if (!reachable)
                 {
                     RevealForm(Loc.F("Rdp.Status.VpnUpHostUnreachable", host, port));
                     return;
@@ -343,6 +352,7 @@ public partial class RdpWindow : Window, Services.ISessionWindow
         }
         catch (Exception ex)
         {
+            if (_closed) { try { await DisposeVpnAsync(); } catch { } return; }
             RevealForm(Loc.F("Rdp.Status.StartRdpFailed", ex.Message));
         }
     }
@@ -376,7 +386,9 @@ public partial class RdpWindow : Window, Services.ISessionWindow
         DisconnectBtn.IsEnabled = true;
         // Now that RDP is actually negotiating, arm the reveal-the-form watchdog for a hands-off connect.
         // (Started here, not in OnLoaded, so a slow VPN bring-up beforehand can't trip a false failure.)
-        if (_directMode) _watchdog.Start();
+        // Armed in form mode too: a 2 -> 0 failure never flips IsConnected, so only the watchdog
+        // re-enables the Connect button there.
+        _watchdog.Start();
     }
 
     // --- DPI-aware sizing helpers (the RDP control wants device pixels; WPF ActualWidth is in DIPs) ---
@@ -676,7 +688,11 @@ public partial class RdpWindow : Window, Services.ISessionWindow
             SessionRegistry.SetPhysicalBounds(this, _prevPhys.x, _prevPhys.y, _prevPhys.w, _prevPhys.h);
             WindowState = _prevState;
             _fullscreen = false;
-            Status(_rdp.IsConnected ? Loc.T("Rdp.Status.Connected") : Loc.T("Rdp.StatusDefault"));
+            // A drop seen while fullscreen only set the status; the poll won't fire again, so reveal now.
+            bool dropped = _dropPendingReveal && !_rdp.IsConnected;
+            _dropPendingReveal = false;
+            if (dropped) RevealForm(Loc.T("Rdp.Status.DisconnectedReconnect"));
+            else Status(_rdp.IsConnected ? Loc.T("Rdp.Status.Connected") : Loc.T("Rdp.StatusDefault"));
         }
     }
 
@@ -869,7 +885,7 @@ public partial class RdpWindow : Window, Services.ISessionWindow
             _sessionUp = false;
             // A session that came up then dropped: offer a retry (hands-off) or the form (form-driven).
             if (!_fullscreen) RevealForm(Loc.T("Rdp.Status.DisconnectedReconnect"));
-            else Status(Loc.T("Rdp.Status.DisconnectedReconnect"));
+            else { Status(Loc.T("Rdp.Status.DisconnectedReconnect")); _dropPendingReveal = true; }
         }
     }
 

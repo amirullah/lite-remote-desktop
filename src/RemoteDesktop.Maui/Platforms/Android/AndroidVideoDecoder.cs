@@ -16,7 +16,7 @@ namespace RemoteDesktop.Maui;
 /// </summary>
 public sealed class AndroidVideoDecoder : IVideoDecoder
 {
-    private readonly Surface _surface;
+    private Surface _surface; // tracks SetSurface so a later rebuild never targets a released surface
     private readonly object _gate = new();
     private MediaCodec? _codec;
     private int _width, _height;
@@ -36,11 +36,22 @@ public sealed class AndroidVideoDecoder : IVideoDecoder
             var format = MediaFormat.CreateVideoFormat(MediaFormat.MimetypeVideoAvc, width, height);
             try { format.SetInteger("low-latency", 1); } catch { /* API < 30 */ }
 
-            var mc = MediaCodec.CreateDecoderByType(MediaFormat.MimetypeVideoAvc!);
-            mc.Configure(format, _surface, (MediaCrypto?)null, MediaCodecConfigFlags.None);
-            mc.Start();
-            _codec = mc;
-            _started = true;
+            MediaCodec? mc = null;
+            try
+            {
+                mc = MediaCodec.CreateDecoderByType(MediaFormat.MimetypeVideoAvc!);
+                mc.Configure(format, _surface, (MediaCrypto?)null, MediaCodecConfigFlags.None);
+                mc.Start();
+                _codec = mc;
+                _started = true;
+            }
+            catch
+            {
+                // A decoder failure should drop frames, not end the session; the next config retries.
+                try { mc?.Release(); } catch { }
+                _codec = null;
+                _started = false;
+            }
         }
     }
 
@@ -90,6 +101,7 @@ public sealed class AndroidVideoDecoder : IVideoDecoder
     {
         lock (_gate)
         {
+            _surface = surface;
             try { _codec?.SetOutputSurface(surface); } catch { /* not started / unsupported */ }
         }
     }

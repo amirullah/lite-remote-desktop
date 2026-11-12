@@ -6,19 +6,27 @@
 #   LiteRemote-Relay-linux-<ver>.zip  relay (Linux, untuk VPS)
 #
 #   pwsh -File build-installer.ps1
-#   pwsh -File build-installer.ps1 -Version 1.2.0
+#   pwsh -File build-installer.ps1 -Version 1.4.43   # default: <Version> di Client.csproj
 #   pwsh -File build-installer.ps1 -SkipRelay      # lebih cepat: setup + viewer/host saja
 #
 # Prasyarat: .NET 8 SDK dan Inno Setup 6 (winget install JRSoftware.InnoSetup).
 # Output publish\ dan dist\ sengaja di-gitignore — artefak biner tidak ikut di-push.
 
 param(
-    [string]$Version = "1.2.0",
+    [string]$Version = "",
     [switch]$SkipRelay
 )
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
+
+# Default to the client csproj version so a bare run never stamps a stale/downgrade version.
+if (-not $Version) {
+    $Version = ([xml](Get-Content "$root\src\RemoteDesktop.Client\RemoteDesktop.Client.csproj")).Project.PropertyGroup.Version |
+        Where-Object { $_ } | Select-Object -First 1
+    if (-not $Version) { throw "Versi tidak ditemukan di RemoteDesktop.Client.csproj — berikan -Version" }
+}
+Write-Host "Versi: $Version"
 
 function Find-Tool([string[]]$candidates, [string]$hint) {
     $found = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
@@ -94,7 +102,7 @@ Write-Host "== Publish host (tray) =="
 & $dotnet publish "$root\src\RemoteDesktop.Host\RemoteDesktop.Host.csproj" `
     -c Release -r win-x64 --self-contained true `
     -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-    -p:EnableCompressionInSingleFile=true -p:DebugType=none `
+    -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:Version=$Version `
     -o "$root\publish\host"
 if ($LASTEXITCODE -ne 0) { throw "Publish host gagal" }
 
@@ -102,12 +110,12 @@ if (-not $SkipRelay) {
     Write-Host "== Publish relay (Windows & Linux) =="
     & $dotnet publish "$root\src\RemoteDesktop.Relay\RemoteDesktop.Relay.csproj" `
         -c Release -r win-x64 --self-contained true `
-        -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugType=none `
+        -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:Version=$Version `
         -o "$root\publish\relay-win"
     if ($LASTEXITCODE -ne 0) { throw "Publish relay-win gagal" }
     & $dotnet publish "$root\src\RemoteDesktop.Relay\RemoteDesktop.Relay.csproj" `
         -c Release -r linux-x64 --self-contained true `
-        -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugType=none `
+        -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:Version=$Version `
         -o "$root\publish\relay-linux"
     if ($LASTEXITCODE -ne 0) { throw "Publish relay-linux gagal" }
 }

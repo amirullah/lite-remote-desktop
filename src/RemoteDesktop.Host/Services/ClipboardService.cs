@@ -16,6 +16,10 @@ public sealed class ClipboardService : IDisposable
     private ClipboardWindow? _window;
     private readonly ManualResetEventSlim _ready = new(false);
     private ulong _lastFingerprint;
+    private uint _ownSequence; // clipboard sequence number right after our last SetClipboard (pump thread only)
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint GetClipboardSequenceNumber();
 
     /// <summary>Raised (on the pump thread) when the local clipboard changes.</summary>
     public event Action<ClipboardData>? ClipboardChanged;
@@ -37,6 +41,8 @@ public sealed class ClipboardService : IDisposable
 
     private void OnClipboardUpdate()
     {
+        if (_ownSequence != 0 && GetClipboardSequenceNumber() == _ownSequence) return; // our own write
+
         var data = ReadClipboard();
         if (data.Format == ClipboardFormat.Empty) return;
 
@@ -69,6 +75,9 @@ public sealed class ClipboardService : IDisposable
                         Clipboard.SetFileDropList(coll);
                         break;
                 }
+                // Images are re-encoded differently on each side, so byte fingerprints alone let an
+                // image ping-pong forever. Remember the sequence number our write produced instead.
+                _ownSequence = GetClipboardSequenceNumber();
             }
             catch { /* clipboard is a shared resource; races are expected and benign */ }
         });

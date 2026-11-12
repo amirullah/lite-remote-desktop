@@ -25,6 +25,7 @@ internal sealed class H264Encoder : IDisposable
     private readonly bool _providesSamples;     // MFT allocates its own output samples
     private readonly int _outBufSize;
     private long _frameIndex;
+    private int _pendingInput;                  // async: NeedInput events received but not yet fed
     private byte[] _nv12;                        // reusable NV12 scratch
 
     /// <summary>Human-readable description of the encoder that was selected (name + hw/sw).</summary>
@@ -187,20 +188,40 @@ internal sealed class H264Encoder : IDisposable
         keyframe = false;
         using var ms = new System.IO.MemoryStream();
         bool fed = false;
-        // Pump events until the encoder has consumed our input and emitted its output.
-        while (!fed || ms.Length == 0)
+        // A NeedInput credit left over from a previous call can be spent right away; waiting for
+        // another event would hang because the MFT only re-asks after it gets that input.
+        if (_pendingInput > 0)
+        {
+            _pendingInput--;
+            _transform.ProcessInput(0, inputSample, 0);
+            inputSample.Dispose();
+            fed = true;
+        }
+        // Pump events until our input is consumed and either output appears or the MFT asks for
+        // more input (lookahead/warm-up). In the latter case return what we have (possibly empty)
+        // and bank the credit, so the caller supplies the next frame instead of blocking forever.
+        while (true)
         {
             using var ev = _events!.GetEvent(0);
             var type = ev.EventType;
-            if (type == MediaEventTypes.TransformNeedInput && !fed)
+            if (type == MediaEventTypes.TransformNeedInput)
             {
-                _transform.ProcessInput(0, inputSample, 0);
-                inputSample.Dispose();
-                fed = true;
+                if (!fed)
+                {
+                    _transform.ProcessInput(0, inputSample, 0);
+                    inputSample.Dispose();
+                    fed = true;
+                }
+                else
+                {
+                    _pendingInput++;
+                    break;
+                }
             }
             else if (type == MediaEventTypes.TransformHaveOutput)
             {
                 DrainOne(ms, ref keyframe);
+                if (fed && ms.Length > 0) break;
             }
         }
         return ms.ToArray();

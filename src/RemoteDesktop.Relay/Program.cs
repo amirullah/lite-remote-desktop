@@ -188,13 +188,26 @@ internal sealed class RelayServer
         if (joined != waiter.Task)
         {
             _sessions.TryRemove(token, out _);
+            // A join may have raced past TryRemove; cancel so it closes its own socket, or, if it
+            // already handed us the stream, close that here so the host socket isn't leaked.
+            if (!waiter.TrySetCanceled() && waiter.Task.IsCompletedSuccessfully)
+                try { waiter.Task.Result.Dispose(); } catch { }
             await RelayProtocol.SendAsync(stream, new RelayMsg { Ok = false, Error = "host did not answer" });
             tcp.Close();
             return;
         }
 
         var hostStream = await waiter.Task;
-        await RelayProtocol.SendAsync(stream, new RelayMsg { Ok = true });
+        try
+        {
+            await RelayProtocol.SendAsync(stream, new RelayMsg { Ok = true });
+        }
+        catch
+        {
+            // Viewer left before the pipe started; nobody else owns the host socket now.
+            try { hostStream.Dispose(); } catch { }
+            throw;
+        }
         Console.WriteLine($"[relay] splicing viewer {tcp.Client.RemoteEndPoint} <-> host {RelayProtocol.FormatId(id)}");
 
         // From here on we are a dumb pipe for the end-to-end TLS session.
@@ -231,9 +244,21 @@ internal sealed class RelayServer
 
         public async Task SendAsync(RelayMsg msg)
         {
-            await _writeLock.WaitAsync();
-            try { await RelayProtocol.SendAsync(_stream, msg); }
-            finally { _writeLock.Release(); }
+            // Bound the wait: a host that stops reading (zero TCP window) would otherwise pin the
+            // write lock forever and hang every viewer connecting to it.
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            try
+            {
+                await _writeLock.WaitAsync(cts.Token);
+                try { await RelayProtocol.SendAsync(_stream, msg, cts.Token); }
+                finally { _writeLock.Release(); }
+            }
+            catch (OperationCanceledException)
+            {
+                // A write cancelled mid-frame leaves the stream unusable; drop the host.
+                Close();
+                throw;
+            }
         }
 
         public void Close() { try { _tcp.Close(); } catch { } }
