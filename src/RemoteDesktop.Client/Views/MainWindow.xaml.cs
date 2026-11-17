@@ -469,7 +469,11 @@ public partial class MainWindow : Window
     }
 
     private void HighlightTab(SessionTab tab, bool active)
-        => tab.Chip.Background = active ? (System.Windows.Media.Brush)FindResource("PanelHi") : System.Windows.Media.Brushes.Transparent;
+    {
+        // Resource reference (not a FindResource snapshot) so the chip follows live theme brush swaps.
+        if (active) tab.Chip.SetResourceReference(Border.BackgroundProperty, "PanelHi");
+        else tab.Chip.Background = System.Windows.Media.Brushes.Transparent;
+    }
 
     private void ActivateTab(SessionTab tab)
     {
@@ -553,6 +557,16 @@ public partial class MainWindow : Window
         {
             _fsPrevState = WindowState; _fsPrevStyle = WindowStyle;
             _fsPrevPhys = SessionRegistry.GetPhysicalBounds(this);
+            if (_fsPrevState == WindowState.Maximized && !RestoreBounds.IsEmpty)
+            {
+                // Save the NORMAL rect, not the maximized frame, so exit restores a sane un-maximize size.
+                var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+                var rb = RestoreBounds;
+                _fsPrevPhys = ((int)System.Math.Round(rb.X * dpi.DpiScaleX), (int)System.Math.Round(rb.Y * dpi.DpiScaleY),
+                               (int)System.Math.Round(rb.Width * dpi.DpiScaleX), (int)System.Math.Round(rb.Height * dpi.DpiScaleY));
+            }
+            // Theme/language may have changed since the hover bar was built — rebuild it fresh.
+            if (_tabBar != null) { try { _tabBar.Close(); } catch { } _tabBar = null; _tabBarList = null; }
             WindowState = WindowState.Normal;
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;

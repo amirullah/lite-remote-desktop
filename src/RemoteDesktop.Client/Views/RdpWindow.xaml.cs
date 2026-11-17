@@ -91,7 +91,8 @@ public partial class RdpWindow : Window, Services.ISessionWindow
             SessionRegistry.Unregister(this);
             _poll.Stop(); _hover.Stop(); _watchdog.Stop();
             try { _bar?.Close(); } catch { }
-            try { if (_rdpReady && _rdp.IsConnected) _rdp.Ocx.Disconnect(); } catch { /* control tearing down */ }
+            // Raw state != 0 also covers "still negotiating" (2), which IsConnected misses.
+            try { if (_rdpReady && (int)_rdp.Ocx.Connected != 0) _rdp.Ocx.Disconnect(); } catch { /* control tearing down */ }
             // Fully release the embedded RDP ActiveX (mstscax) + its host controls — the COM object holds a
             // large back-buffer; without disposing it, a closed tab keeps that memory until GC eventually
             // finalizes it. Dispose now so memory drops as soon as the session is closed.
@@ -629,7 +630,12 @@ public partial class RdpWindow : Window, Services.ISessionWindow
 
     private void Disconnect_Click(object sender, RoutedEventArgs e)
     {
-        try { if (_rdp.IsConnected) _rdp.Ocx.Disconnect(); } catch { }
+        // Read the raw state: IsConnected is only true for 1, so a click while still negotiating (2)
+        // would otherwise leave the connection to come up behind a "Disconnected" status.
+        int st = 0;
+        try { if (_rdpReady) st = (int)_rdp.Ocx.Connected; } catch { }
+        try { if (st != 0) _rdp.Ocx.Disconnect(); } catch { }
+        if (st == 2) { RevealForm(Loc.T("Rdp.Status.Disconnected")); return; }   // stop watchdog, reset buttons
         Status(Loc.T("Rdp.Status.Disconnected"));
     }
 

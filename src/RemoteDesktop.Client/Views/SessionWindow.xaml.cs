@@ -45,6 +45,8 @@ public partial class SessionWindow : Window, ISessionWindow
     private FrameSurface? _surface;
     private RemoteInputController? _input;
     private ClipboardBridge? _clipboard;
+    // Cancelled when the window closes; guards the async connect flow against outliving the window.
+    private readonly CancellationTokenSource _lifetime = new();
 
     private SessionSettings _settings;
     private bool _inSession;
@@ -135,9 +137,17 @@ public partial class SessionWindow : Window, ISessionWindow
                 // the old VpnService, which launched a bare "openvpn" (not the bundled path) and failed
                 // "the system cannot find the file specified", and never elevated for the route.
                 string vpnStatus = "";
-                _vpn = new SplitTunnelVpn();
-                bool up = await _vpn.ConnectAsync(_request.VpnProfilePath, _request.VpnUser ?? "", _request.VpnPass ?? "",
-                    _request.Host, s => { vpnStatus = s; SetOverlay(Loc.T("Session.Connecting"), s); }, default);
+                var vpn = _vpn = new SplitTunnelVpn();
+                bool up = await vpn.ConnectAsync(_request.VpnProfilePath, _request.VpnUser ?? "", _request.VpnPass ?? "",
+                    _request.Host, s => { vpnStatus = s; SetOverlay(Loc.T("Session.Connecting"), s); }, _lifetime.Token);
+                if (_lifetime.IsCancellationRequested)
+                {
+                    // Window closed mid-connect: Cleanup may have disposed the VPN before its management
+                    // socket existed, so dispose again now that SIGTERM can actually reach the engine.
+                    try { await vpn.DisposeAsync(); } catch { }
+                    if (ReferenceEquals(_vpn, vpn)) _vpn = null;
+                    return;
+                }
                 if (!up)
                 {
                     ShowDisconnected(vpnStatus.Length > 0 ? vpnStatus : Loc.T("Session.Disconnected.VpnFailed"));
@@ -149,12 +159,22 @@ public partial class SessionWindow : Window, ISessionWindow
             SetOverlay(Loc.T("Session.Connecting"),
                 _request.IdMode ? Loc.F("Session.Overlay.IdViaRelay", _request.Id) : $"{_request.Host}:{_request.Port}…");
 
-            _connection = new RemoteConnection(_pins);
-            WireConnection(_connection);
+            var conn = _connection = new RemoteConnection(_pins);
+            WireConnection(conn);
 
             bool ok = _request.IdMode
-                ? await _connection.ConnectViaRelayAsync(_request.Relay, _request.Id, _request.Credential, _settings)
-                : await _connection.ConnectAsync(_request.Host, _request.Port, _request.Credential, _settings, bind);
+                ? await conn.ConnectViaRelayAsync(_request.Relay, _request.Id, _request.Credential, _settings)
+                : await conn.ConnectAsync(_request.Host, _request.Port, _request.Credential, _settings, bind);
+
+            if (_lifetime.IsCancellationRequested)
+            {
+                // Window closed while connecting: Cleanup already ran, so nothing else will dispose this
+                // session (or any VPN still up) — tear it down here instead of entering a dead window.
+                try { await conn.DisposeAsync(); } catch { }
+                if (ReferenceEquals(_connection, conn)) _connection = null;
+                await DisconnectAsync();
+                return;
+            }
 
             if (ok)
             {
@@ -443,6 +463,8 @@ public partial class SessionWindow : Window, ISessionWindow
 
     private async void Cleanup()
     {
+        // Stop any in-flight connect flow first so it can't finish on a closed window.
+        try { _lifetime.Cancel(); } catch { }
         SessionRegistry.Changed -= OnSessionsChanged;
         SessionRegistry.Unregister(this);
         if (_clipboard != null) _clipboard.ClipboardChanged -= OnLocalClipboardChanged;

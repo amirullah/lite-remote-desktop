@@ -625,6 +625,8 @@ public sealed class HostSession
         h264?.Dispose();
         encoder.Dispose();
         scaler.Dispose();
+        // DCs are closed now, so this thread's desktop handles can be released.
+        DesktopFollow.ReleaseThread();
     }
 
     /// <summary>

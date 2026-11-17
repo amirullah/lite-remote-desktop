@@ -47,10 +47,15 @@ public sealed class HostPrivacyService : IDisposable
     private void SetInputLocked(bool locked)
     {
         if (locked == _inputLocked) return;
-        _inputLocked = locked;
         // BlockInput blocks physical input while our SendInput injection keeps working. It may fail
         // without sufficient privileges — that's acceptable; we simply don't lock in that case.
-        BlockInput(locked);
+        // Win32 only lets the thread that blocked input unblock it, so always call it on the
+        // long-lived pump thread (callers arrive on arbitrary pool threads). Track the state only
+        // when the call succeeded so a failed unlock can be retried.
+        InvokeOnPump(() =>
+        {
+            if (BlockInput(locked)) _inputLocked = locked;
+        });
     }
 
     private void SetScreenBlank(bool blank)
@@ -94,7 +99,14 @@ public sealed class HostPrivacyService : IDisposable
         {
             SetInputLocked(false);
             SetScreenBlank(false);
-            Application.ExitThread();
+            // ExitThread must run on the pump thread itself; calling it here (a pool thread) would
+            // leak the pump thread and its hidden window. Exiting the thread also releases any block.
+            InvokeOnPump(() =>
+            {
+                _anchor?.Dispose();
+                Application.ExitThread();
+            });
+            _thread.Join(1000);
         }
         catch { }
         _ready.Dispose();

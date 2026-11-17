@@ -72,6 +72,9 @@ Filename: "{app}\client\{#ClientExe}"; Description: "Launch LiteRemote viewer"; 
 
 [UninstallRun]
 Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""LiteRemote Host"""; Flags: runhidden; RunOnceId: "DelFirewallRule"
+; Remove the SYSTEM login-screen task, otherwise it keeps firing at boot against a deleted exe
+; and a later reinstall's tray host would step aside for it.
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN LiteRemoteLogin /F"; Flags: runhidden; RunOnceId: "DelLoginTask"
 
 [Code]
 procedure KillProcess(const ExeName: string);
@@ -93,6 +96,19 @@ begin
   KillProcess('openvpnserv.exe');
   Sleep(700);
   Result := '';
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
+  // PrepareToInstall killed the SYSTEM --daemon too; its task only triggers at boot, so restart it
+  // now if login support was installed, or the PC stays unreachable on 7443 until reboot.
+  if CurStep = ssPostInstall then
+    if Exec(ExpandConstant('{sys}\schtasks.exe'), '/Query /TN LiteRemoteLogin', '',
+            SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then
+      Exec(ExpandConstant('{sys}\schtasks.exe'), '/Run /TN LiteRemoteLogin', '',
+           SW_HIDE, ewNoWait, ResultCode);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

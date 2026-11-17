@@ -70,7 +70,18 @@ public sealed class PinStore
     private void Save()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
-        File.WriteAllText(_path, JsonSerializer.Serialize(_pins, new JsonSerializerOptions { WriteIndented = true }));
+        // Write to a temp file, flush to disk, then swap it in: an in-place truncate+write that is
+        // interrupted would leave an empty file, which Load() reads as "no pins" (MITM check lost).
+        var tmp = _path + ".tmp";
+        var json = JsonSerializer.Serialize(_pins, new JsonSerializerOptions { WriteIndented = true });
+        using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+        using (var sw = new StreamWriter(fs))
+        {
+            sw.Write(json);
+            sw.Flush();
+            fs.Flush(flushToDisk: true);
+        }
+        File.Move(tmp, _path, overwrite: true);
     }
 }
 

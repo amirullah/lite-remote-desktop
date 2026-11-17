@@ -17,15 +17,20 @@ namespace RemoteDesktop.Host.Capture;
 /// </summary>
 internal static class DesktopFollow
 {
-    private static string _current = "";
-    private static string _pendingName = "";
-    private static IntPtr _currentHandle = IntPtr.Zero;
-    private static IntPtr _pendingHandle = IntPtr.Zero;
+    // Per-thread: SetThreadDesktop only affects the calling thread, and each session runs its own
+    // capture thread that starts on the process's default desktop. Shared statics would make a new
+    // session think it is already on Winlogon (and let one thread close another's bound handle).
+    [ThreadStatic] private static string? _current;
+    [ThreadStatic] private static string? _pendingName;
+    [ThreadStatic] private static IntPtr _currentHandle;
+    [ThreadStatic] private static IntPtr _pendingHandle;
+    // Desktop the thread was on before its first attach (from GetThreadDesktop; must not be closed).
+    [ThreadStatic] private static IntPtr _originalHandle;
 
     /// <summary>Enabled only in --agent mode; a no-op otherwise so the interactive tray host is unchanged.</summary>
     public static bool Enabled;
 
-    public static string CurrentDesktop => _current;
+    public static string CurrentDesktop => _current ?? "";
 
     /// <summary>
     /// True when the input desktop differs from the one this thread is on. Opens (but does not yet
@@ -54,6 +59,7 @@ internal static class DesktopFollow
     public static void AttachPending()
     {
         if (_pendingHandle == IntPtr.Zero) return;
+        if (_originalHandle == IntPtr.Zero) _originalHandle = GetThreadDesktop(GetCurrentThreadId());
         if (SetThreadDesktop(_pendingHandle))
         {
             if (_currentHandle != IntPtr.Zero) CloseDesktop(_currentHandle);
@@ -67,6 +73,25 @@ internal static class DesktopFollow
             CloseDesktop(_pendingHandle);
         }
         _pendingHandle = IntPtr.Zero;
+    }
+
+    /// <summary>
+    /// Release the calling thread's desktop handles. Call from the capture thread when it exits, after
+    /// its DCs are closed; otherwise each session leaks a desktop handle in the long-lived agent.
+    /// </summary>
+    public static void ReleaseThread()
+    {
+        if (_pendingHandle != IntPtr.Zero) { CloseDesktop(_pendingHandle); _pendingHandle = IntPtr.Zero; }
+        if (_currentHandle != IntPtr.Zero)
+        {
+            // CloseDesktop fails on the desktop the thread is still using, so move back first.
+            if (_originalHandle != IntPtr.Zero) SetThreadDesktop(_originalHandle);
+            CloseDesktop(_currentHandle);
+            _currentHandle = IntPtr.Zero;
+        }
+        _current = null;
+        _pendingName = null;
+        _originalHandle = IntPtr.Zero;
     }
 
     [ThreadStatic] private static string? _threadDesk;
@@ -120,6 +145,10 @@ internal static class DesktopFollow
     private static extern bool SetThreadDesktop(IntPtr hDesktop);
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool CloseDesktop(IntPtr hDesktop);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr GetThreadDesktop(uint dwThreadId);
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool GetUserObjectInformation(IntPtr hObj, int nIndex,
         byte[] pvInfo, int nLength, out int lpnLengthNeeded);
