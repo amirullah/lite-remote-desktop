@@ -157,7 +157,9 @@ public sealed class RemoteConnection : IAsyncDisposable
         SetState(ConnectionState.Authenticating, "Authenticating…");
         if (!await AuthenticateAsync(credential, ct).ConfigureAwait(false))
         {
-            SetState(ConnectionState.Failed, "Authentication rejected by host.");
+            // Keep the host's specific reason (e.g. throttle wait) if AuthenticateAsync already set one.
+            if (State != ConnectionState.Failed)
+                SetState(ConnectionState.Failed, "Authentication rejected by host.");
             return false;
         }
 

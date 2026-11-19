@@ -54,6 +54,49 @@ public partial class MainWindow : Window
         };
 
         Closing += (_, _) => Cleanup();
+
+        // Quiet background update check a few seconds after start (never blocks or nags on failure).
+        if (_config.AutoCheckUpdates)
+            Dispatcher.BeginInvoke(async () =>
+            {
+                await System.Threading.Tasks.Task.Delay(4000);
+                await CheckForUpdateAsync();
+            }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+    }
+
+    // ---------------- in-app update ----------------
+
+    private UpdateInfo? _pendingUpdate;
+
+    private async System.Threading.Tasks.Task CheckForUpdateAsync()
+    {
+        try
+        {
+            var cur = UpdateService.CurrentVersion;
+            var info = await UpdateService.CheckAsync(cur);
+            if (info is null) return;
+            if (string.Equals(_config.SkippedUpdateVersion, info.Version.ToString(3), StringComparison.Ordinal)) return;
+            _pendingUpdate = info;
+            UpdateBannerText.Text = Loc.F("Update.Available", info.Version.ToString(3), cur.ToString(3));
+            UpdateBanner.Visibility = Visibility.Visible;
+        }
+        catch (Exception ex) { Diag.Log("[update] startup check failed: " + ex.Message); }   // offline etc. — stay quiet
+    }
+
+    private async void UpdateNow_Click(object sender, RoutedEventArgs e)
+    {
+        if (_pendingUpdate is null) return;
+        UpdateNowBtn.IsEnabled = false;
+        try { await UpdateFlow.RunAsync(this, _pendingUpdate, s => UpdateBannerText.Text = s); }
+        finally { UpdateNowBtn.IsEnabled = true; }
+    }
+
+    private void UpdateLater_Click(object sender, RoutedEventArgs e) => UpdateBanner.Visibility = Visibility.Collapsed;
+
+    private void UpdateSkip_Click(object sender, RoutedEventArgs e)
+    {
+        if (_pendingUpdate != null) { _config.SkippedUpdateVersion = _pendingUpdate.Version.ToString(3); _config.Save(); }
+        UpdateBanner.Visibility = Visibility.Collapsed;
     }
 
     // ---------------- Recent / saved sessions (right column) ----------------

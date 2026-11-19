@@ -70,13 +70,50 @@ public sealed class HostConfig
             if (File.Exists(AppPaths.HostConfig))
                 return JsonSerializer.Deserialize<HostConfig>(File.ReadAllText(AppPaths.HostConfig)) ?? new();
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // Keep the unreadable file aside so the next Save() can't silently destroy the
+            // password hash / host ID; then try the previous good version before defaults.
+            var msg = $"host.json unreadable, falling back: {ex.Message}";
+            System.Diagnostics.Trace.WriteLine(msg);
+            RemoteDesktop.Host.Service.AgentDiag.Log(msg);
+            try { File.Copy(AppPaths.HostConfig, $"{AppPaths.HostConfig}.corrupt-{DateTime.Now:yyyyMMddHHmmss}", true); } catch { }
+            return TryLoadBackup() ?? new HostConfig();
+        }
         return new HostConfig();
     }
+
+    private static readonly object SaveLock = new();
 
     public void Save()
     {
         AppPaths.EnsureRoot();
-        File.WriteAllText(AppPaths.HostConfig, JsonSerializer.Serialize(this, Json));
+        // Write-then-swap so a crash mid-write never leaves a truncated host.json; the previous
+        // version is kept as .bak for Load() to fall back on. Lock: in-process saves can't interleave.
+        var path = AppPaths.HostConfig;
+        var tmp = path + ".tmp";
+        var json = JsonSerializer.Serialize(this, Json);
+        lock (SaveLock)
+        {
+            using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+            using (var w = new StreamWriter(fs))
+            {
+                w.Write(json);
+                w.Flush();
+                fs.Flush(true);
+            }
+            if (File.Exists(path)) File.Replace(tmp, path, path + ".bak", ignoreMetadataErrors: true);
+            else File.Move(tmp, path);
+        }
+    }
+
+    private static HostConfig? TryLoadBackup()
+    {
+        try
+        {
+            var bak = AppPaths.HostConfig + ".bak";
+            return File.Exists(bak) ? JsonSerializer.Deserialize<HostConfig>(File.ReadAllText(bak)) : null;
+        }
+        catch { return null; }
     }
 }

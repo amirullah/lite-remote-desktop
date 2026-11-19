@@ -27,7 +27,8 @@ public partial class SessionEditWindow : Window
         KindText.Text = s.KindLabel;
         AddrText.Text = s.Kind == SessionKind.LiteRemoteId
             ? $"ID {s.RelayId}"
-            : (s.Port is 0 or 3389 or 7443 ? s.Host : $"{s.Host}:{s.Port}");
+            : (s.Port is 0 or 3389 or 7443 ? s.Host
+                : (s.Host.Contains(':') ? $"[{s.Host}]:{s.Port}" : $"{s.Host}:{s.Port}")); // bracket IPv6
         LabelBox.Text = s.Label;
         SavePassCheck.IsChecked = s.SavePassword;
 

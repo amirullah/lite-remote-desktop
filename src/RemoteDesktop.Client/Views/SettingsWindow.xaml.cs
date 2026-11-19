@@ -40,10 +40,58 @@ public partial class SettingsWindow : Window
         ConfirmDeleteCheck.IsChecked = _config.ConfirmDelete;
         JoinFsCheck.IsChecked = _config.JoinActiveFullscreen;
         StartupCheck.IsChecked = IsStartupEnabled();
+        AutoUpdateCheck.IsChecked = _config.AutoCheckUpdates;
 
         var v = Assembly.GetExecutingAssembly().GetName().Version;
         VersionText.Text = v is null ? "—" : $"v{v.Major}.{v.Minor}.{v.Build}";
         _loading = false;
+    }
+
+    // ---------------- updates ----------------
+
+    private UpdateInfo? _update;
+
+    private void AutoUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        _config.AutoCheckUpdates = AutoUpdateCheck.IsChecked == true;
+        _config.Save();
+    }
+
+    private void ShowUpdateStatus(string text)
+    {
+        UpdateStatus.Text = text;
+        UpdateStatus.Visibility = Visibility.Visible;
+    }
+
+    private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        CheckUpdateBtn.IsEnabled = false;
+        InstallUpdateBtn.Visibility = Visibility.Collapsed;
+        ShowUpdateStatus(Loc.T("Update.Checking"));
+        try
+        {
+            var cur = UpdateService.CurrentVersion;
+            _update = await UpdateService.CheckAsync(cur);
+            if (_update is null) { ShowUpdateStatus(Loc.F("Update.UpToDate", cur.ToString(3))); return; }
+            ShowUpdateStatus(Loc.F("Update.Available", _update.Version.ToString(3), cur.ToString(3)));
+            InstallUpdateBtn.Content = Loc.F("Update.Install", _update.Version.ToString(3));
+            InstallUpdateBtn.Visibility = Visibility.Visible;
+        }
+        catch (Exception ex)
+        {
+            Diag.Log("[update] check failed: " + ex);
+            ShowUpdateStatus(Loc.F("Update.CheckFailed", ex.Message));
+        }
+        finally { CheckUpdateBtn.IsEnabled = true; }
+    }
+
+    private async void InstallUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        if (_update is null) return;
+        InstallUpdateBtn.IsEnabled = false; CheckUpdateBtn.IsEnabled = false;
+        try { await UpdateFlow.RunAsync(this, _update, ShowUpdateStatus); }
+        finally { InstallUpdateBtn.IsEnabled = true; CheckUpdateBtn.IsEnabled = true; }
     }
 
     // ---------------- appearance ----------------

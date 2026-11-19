@@ -30,6 +30,11 @@ public sealed class ClientConfig
     /// (joins the "workspace"); switch between them with the toolbar buttons. Off = each opens separately.</summary>
     public bool JoinActiveFullscreen { get; set; } = true;
 
+    /// <summary>Check GitHub Releases for a newer version at startup (one anonymous request, no user data).</summary>
+    public bool AutoCheckUpdates { get; set; } = true;
+    /// <summary>A version the user chose to skip ("Lewati versi ini") — the startup banner stays quiet for it.</summary>
+    public string? SkippedUpdateVersion { get; set; }
+
     /// <summary>Relay server ("host:port") used for ID-based connections. Shared with the host side.</summary>
     public string RelayAddress { get; set; } = "";
 

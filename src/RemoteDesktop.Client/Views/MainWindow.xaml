@@ -25,6 +25,20 @@
             </DockPanel>
         </Border>
 
+        <!-- ===== update banner (startup check found a newer GitHub release) ===== -->
+        <Border x:Name="UpdateBanner" DockPanel.Dock="Top" Visibility="Collapsed"
+                Background="{DynamicResource PanelHi}" BorderBrush="{DynamicResource Accent}" BorderThickness="0,0,0,2" Padding="16,8">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="UpdateNowBtn" Content="{loc:Loc Update.Now}" Padding="14,5" Click="UpdateNow_Click"/>
+                    <Button Content="{loc:Loc Update.Later}" Style="{StaticResource Ghost}" Margin="8,0,0,0" Click="UpdateLater_Click"/>
+                    <Button Content="{loc:Loc Update.Skip}" Style="{StaticResource Ghost}" Margin="8,0,0,0" Click="UpdateSkip_Click"/>
+                </StackPanel>
+                <TextBlock x:Name="UpdateBannerText" VerticalAlignment="Center" FontWeight="SemiBold"
+                           TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Fg}"/>
+            </DockPanel>
+        </Border>
+
         <!-- Session windows (borderless, owned) are positioned OVER this area; the connect form sits behind
              them and shows when "+" is chosen or no session is active. -->
         <Grid x:Name="ContentArea">

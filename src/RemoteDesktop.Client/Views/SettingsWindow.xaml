@@ -106,7 +106,9 @@
                         <CheckBox x:Name="ConfirmDeleteCheck" Content="{loc:Loc Settings.Other.ConfirmDelete}"
                                   Margin="0,0,0,10" Click="ConfirmDelete_Click"/>
                         <CheckBox x:Name="JoinFsCheck" Content="{loc:Loc Settings.Other.JoinFullscreen}"
-                                  Margin="0,0,0,14" Click="JoinFullscreen_Click"/>
+                                  Margin="0,0,0,10" Click="JoinFullscreen_Click"/>
+                        <CheckBox x:Name="AutoUpdateCheck" Content="{loc:Loc Settings.Other.AutoUpdate}"
+                                  Margin="0,0,0,14" Click="AutoUpdate_Click"/>
                         <StackPanel Orientation="Horizontal">
                             <Button Content="{loc:Loc Settings.Other.OpenData}" Style="{StaticResource Ghost}"
                                     Click="OpenData_Click"/>
@@ -173,6 +175,16 @@
                             <TextBlock Grid.Row="1" Grid.Column="1" Text=".NET 8 · WPF · Media Foundation"
                                        Foreground="{DynamicResource Fg}" FontSize="13"/>
                         </Grid>
+
+                        <!-- update: check / install from GitHub Releases -->
+                        <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                            <Button x:Name="CheckUpdateBtn" Content="{loc:Loc Settings.About.CheckUpdate}"
+                                    Style="{StaticResource Ghost}" Click="CheckUpdate_Click"/>
+                            <Button x:Name="InstallUpdateBtn" Margin="10,0,0,0"
+                                    Visibility="Collapsed" Click="InstallUpdate_Click"/>
+                        </StackPanel>
+                        <TextBlock x:Name="UpdateStatus" Foreground="{DynamicResource Muted}" FontSize="12.5"
+                                   TextWrapping="Wrap" Margin="0,8,0,0" Visibility="Collapsed"/>
 
                         <!-- links -->
                         <StackPanel Orientation="Horizontal" Margin="0,16,0,14">

@@ -172,7 +172,9 @@ public partial class RdpWindow : Window, Services.ISessionWindow
     public void ApplySaved(SavedSession s, ClientConfig cfg)
     {
         _directLabel = string.IsNullOrWhiteSpace(s.Label) ? null : s.Label;
-        HostBox.Text = s.Port is 0 or 3389 ? s.Host : $"{s.Host}:{s.Port}";
+        // IPv6 needs brackets before ":port" so SplitHostPort can parse it back.
+        HostBox.Text = s.Port is 0 or 3389 ? s.Host
+            : (s.Host.Contains(':') ? $"[{s.Host}]:{s.Port}" : $"{s.Host}:{s.Port}");
         if (!string.IsNullOrWhiteSpace(s.Username)) UserBox.Text = s.Username;
         bool hasVpn = false;
         if (s.UseVpn && cfg.GetVpn(s.VpnProfileId) is { } v)
@@ -436,8 +438,22 @@ public partial class RdpWindow : Window, Services.ISessionWindow
     private static (string host, int port) SplitHostPort(string raw)
     {
         int port = 3389;
+        // "[v6]" or "[v6]:port": brackets delimit an IPv6 literal, never part of the host.
+        if (raw.StartsWith('['))
+        {
+            int close = raw.IndexOf(']');
+            if (close > 0)
+            {
+                var rest = raw[(close + 1)..];
+                if (rest.StartsWith(':') && int.TryParse(rest[1..], out var bp) && bp is >= 1 and <= 65535) port = bp;
+                return (raw[1..close], port);
+            }
+        }
+        // Bare IPv6 (more than one ':') has no port — splitting on the last ':' would chop the address.
         int colon = raw.LastIndexOf(':');
-        if (colon > 0 && int.TryParse(raw[(colon + 1)..], out var p)) { port = p; raw = raw[..colon]; }
+        if (colon > 0 && colon == raw.IndexOf(':')
+            && int.TryParse(raw[(colon + 1)..], out var p) && p is >= 1 and <= 65535)
+        { port = p; raw = raw[..colon]; }
         return (raw, port);
     }
 

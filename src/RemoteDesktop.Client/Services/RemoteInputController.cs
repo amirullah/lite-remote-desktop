@@ -24,6 +24,12 @@ public sealed class RemoteInputController
     private bool _windowActive;
     private bool _keyboardPassthrough = true;
 
+    // What we told the host is currently held, so focus loss / detach / lost capture can release it —
+    // otherwise the key-up or button-up goes to another local window and the remote stays stuck.
+    private readonly Dictionary<(ushort Vk, bool Ext), ushort> _heldKeys = new();
+    private readonly HashSet<ProtoMouseButton> _heldButtons = new();
+    private ushort _lastX, _lastY;
+
     public RemoteInputController(Image surface, RemoteConnection connection)
     {
         _surface = surface;
@@ -55,6 +61,7 @@ public sealed class RemoteInputController
         _surface.MouseDown += OnMouseDown;
         _surface.MouseUp += OnMouseUp;
         _surface.MouseWheel += OnMouseWheel;
+        _surface.LostMouseCapture += OnLostMouseCapture;
         _surface.Focusable = true;
 
         // Key events are captured at the window level so modifiers work even if focus drifts.
@@ -72,12 +79,14 @@ public sealed class RemoteInputController
     /// <summary>Unhook everything — called when the session ends so keystrokes reach the connect form again.</summary>
     public void Detach()
     {
+        ReleaseAllHeld();
         _enabled = false;
         _hook.Uninstall();
         _surface.MouseMove -= OnMouseMove;
         _surface.MouseDown -= OnMouseDown;
         _surface.MouseUp -= OnMouseUp;
         _surface.MouseWheel -= OnMouseWheel;
+        _surface.LostMouseCapture -= OnLostMouseCapture;
         if (_window != null)
         {
             _window.PreviewKeyDown -= OnKeyDown;
@@ -90,7 +99,22 @@ public sealed class RemoteInputController
     }
 
     private void OnWindowActivated(object? sender, EventArgs e) { _windowActive = true; UpdateHook(); }
-    private void OnWindowDeactivated(object? sender, EventArgs e) { _windowActive = false; UpdateHook(); }
+    private void OnWindowDeactivated(object? sender, EventArgs e) { _windowActive = false; UpdateHook(); ReleaseAllHeld(); }
+
+    /// <summary>Send up events for every key/button the host still believes is down.</summary>
+    private void ReleaseAllHeld()
+    {
+        try
+        {
+            foreach (var btn in _heldButtons)
+                _connection.SendMouseButton(new MouseButtonEvent(btn, false, _lastX, _lastY));
+            foreach (var ((vk, ext), scan) in _heldKeys)
+                _connection.SendKey(new KeyEventData(vk, scan, false, ext));
+        }
+        catch { /* connection already gone — host releases on its own at session end */ }
+        _heldButtons.Clear();
+        _heldKeys.Clear();
+    }
 
     /// <summary>Install the keyboard hook only when we are enabled, want passthrough, and are focused.</summary>
     private void UpdateHook()
@@ -116,7 +140,9 @@ public sealed class RemoteInputController
 
     // ---------- mouse ----------
 
-    private bool TryNormalize(MouseEventArgs e, out ushort nx, out ushort ny)
+    /// <param name="clamp">Clamp out-of-picture positions to the edge instead of failing — used while
+    /// the mouse is captured so drags past the edge still move and, crucially, still release.</param>
+    private bool TryNormalize(MouseEventArgs e, out ushort nx, out ushort ny, bool clamp = false)
     {
         nx = ny = 0;
         double surfW = _surface.Source?.Width ?? 0, surfH = _surface.Source?.Height ?? 0;
@@ -133,17 +159,23 @@ public sealed class RemoteInputController
 
         double x = (pos.X - offX) / contentW;
         double y = (pos.Y - offY) / contentH;
-        if (x < 0 || x > 1 || y < 0 || y > 1) return false;
+        if (clamp)
+        {
+            x = Math.Clamp(x, 0, 1);
+            y = Math.Clamp(y, 0, 1);
+        }
+        else if (x < 0 || x > 1 || y < 0 || y > 1) return false;
 
         nx = (ushort)Math.Round(x * 65535);
         ny = (ushort)Math.Round(y * 65535);
+        _lastX = nx; _lastY = ny;
         return true;
     }
 
     private void OnMouseMove(object sender, MouseEventArgs e)
     {
         if (!_enabled) return;
-        if (TryNormalize(e, out var nx, out var ny))
+        if (TryNormalize(e, out var nx, out var ny, clamp: _surface.IsMouseCaptured))
             _connection.SendMouseMove(new MouseMoveEvent(nx, ny));
     }
 
@@ -153,15 +185,37 @@ public sealed class RemoteInputController
         _surface.Focus();
         _surface.CaptureMouse();
         if (TryNormalize(e, out var nx, out var ny) && Map(e.ChangedButton, out var btn))
+        {
+            _heldButtons.Add(btn);
             _connection.SendMouseButton(new MouseButtonEvent(btn, true, nx, ny));
+        }
     }
 
     private void OnMouseUp(object sender, MouseButtonEventArgs e)
     {
         if (!_enabled) return;
-        _surface.ReleaseMouseCapture();
-        if (TryNormalize(e, out var nx, out var ny) && Map(e.ChangedButton, out var btn))
+        // Always release a button whose down we sent, clamping the position — a release over the
+        // letterbox or outside the window must not leave the remote button held.
+        if (Map(e.ChangedButton, out var btn) && _heldButtons.Remove(btn))
+        {
+            if (!TryNormalize(e, out var nx, out var ny, clamp: true)) { nx = _lastX; ny = _lastY; }
             _connection.SendMouseButton(new MouseButtonEvent(btn, false, nx, ny));
+        }
+        // Only drop capture once no button is still down, else a second held button loses its up.
+        if (_heldButtons.Count == 0) _surface.ReleaseMouseCapture();
+    }
+
+    // Capture taken away (Alt+Tab, popup, window hidden) while a button is down: the up will never
+    // reach us, so release it on the remote now.
+    private void OnLostMouseCapture(object sender, MouseEventArgs e)
+    {
+        try
+        {
+            foreach (var btn in _heldButtons)
+                _connection.SendMouseButton(new MouseButtonEvent(btn, false, _lastX, _lastY));
+        }
+        catch { /* connection gone */ }
+        _heldButtons.Clear();
     }
 
     private void OnMouseWheel(object sender, MouseWheelEventArgs e)
@@ -211,7 +265,14 @@ public sealed class RemoteInputController
         int vk = KeyInterop.VirtualKeyFromKey(key);
         if (vk == 0) return;
         uint scan = MapVirtualKey((uint)vk, MAPVK_VK_TO_VSC);
-        _connection.SendKey(new KeyEventData((ushort)vk, (ushort)scan, down, IsExtended(key)));
+        SendTrackedKey((ushort)vk, (ushort)scan, down, IsExtended(key));
+    }
+
+    private void SendTrackedKey(ushort vk, ushort scan, bool down, bool ext)
+    {
+        if (down) _heldKeys[(vk, ext)] = scan;
+        else _heldKeys.Remove((vk, ext));
+        _connection.SendKey(new KeyEventData(vk, scan, down, ext));
     }
 
     /// <summary>Forward a key straight from the low-level hook (already has vk/scan/extended).</summary>
@@ -219,7 +280,7 @@ public sealed class RemoteInputController
     {
         if (vk == 0) return;
         if (scan == 0) scan = MapVirtualKey((uint)vk, MAPVK_VK_TO_VSC);
-        _connection.SendKey(new KeyEventData((ushort)vk, (ushort)scan, down, ext));
+        SendTrackedKey((ushort)vk, (ushort)scan, down, ext);
     }
 
     private static bool IsExtended(Key key) => key switch
