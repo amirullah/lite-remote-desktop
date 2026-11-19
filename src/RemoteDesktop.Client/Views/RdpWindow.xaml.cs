@@ -169,9 +169,13 @@ public partial class RdpWindow : Window, Services.ISessionWindow
     }
 
     /// <summary>Prefill this window from a saved RDP session and auto-connect once ready (one-click reconnect).</summary>
+    /// <summary>The stored label of this target when the window opened (to detect an Edit-rename since).</summary>
+    private string? _openedLabel;
+
     public void ApplySaved(SavedSession s, ClientConfig cfg)
     {
         _directLabel = string.IsNullOrWhiteSpace(s.Label) ? null : s.Label;
+        _openedLabel = s.Label;
         // IPv6 needs brackets before ":port" so SplitHostPort can parse it back.
         HostBox.Text = s.Port is 0 or 3389 ? s.Host
             : (s.Host.Contains(':') ? $"[{s.Host}]:{s.Port}" : $"{s.Host}:{s.Port}");
@@ -184,6 +188,9 @@ public partial class RdpWindow : Window, Services.ISessionWindow
             if (!string.IsNullOrWhiteSpace(v.Username)) VpnUserBox.Text = v.Username;
             hasVpn = true;
         }
+        // VpnBox's TextChanged→LoadSavedVpnPass may force-tick "save" from a VPN secret shared with another
+        // session; restore this session's own choice (LoadSavedRdpCreds re-ticks it only if an RDP secret exists).
+        if (SaveCredsCheck != null) SaveCredsCheck.IsChecked = s.SavePassword;
         LoadSavedRdpCreds();   // fill user/password from the saved secret for this host
 
         // Only go hands-off when we have EVERYTHING needed: the Windows password, and (if this target is
@@ -212,6 +219,13 @@ public partial class RdpWindow : Window, Services.ISessionWindow
                             string? label = null)
     {
         _directLabel = string.IsNullOrWhiteSpace(label) ? null : label.Trim();
+        // Remember what's stored for this target right now, so a later Edit-rename is detectable.
+        try
+        {
+            var (h, p) = SplitHostPort(HostBox.Text.Trim());
+            _openedLabel = ExistingRdpSession(ClientConfig.Shared, h, p)?.Label;
+        }
+        catch { }
         if (!string.IsNullOrWhiteSpace(user)) UserBox.Text = user.Trim();
         if (password != null) PassBox.Password = password;
 
@@ -296,6 +310,11 @@ public partial class RdpWindow : Window, Services.ISessionWindow
             }
             // Update the EXISTING row in place (keeps its Id, pin and label) instead of rebuilding it.
             var existing = ExistingRdpSession(cfg, host, port);
+            // A rename via Edit WHILE this window stayed open must win over our snapshot — but a new name the
+            // user typed in the connect form must win over the old stored one. So adopt the stored label only
+            // if it changed since this window opened.
+            if (!string.IsNullOrWhiteSpace(existing?.Label) && existing!.Label != _openedLabel) _directLabel = existing.Label;
+            _openedLabel = existing?.Label ?? _openedLabel;
             var row = (existing ?? new SavedSession { Kind = SessionKind.Rdp, Host = host, Port = port }) with
             {
                 Label = _directLabel ?? existing?.Label ?? "",

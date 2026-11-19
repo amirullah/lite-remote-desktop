@@ -252,7 +252,8 @@ public partial class SessionWindow : Window, ISessionWindow
         conn.DisplaysReceived += displays => Dispatcher.Invoke(() => PopulateDisplays(displays));
         conn.StatReceived += stat => Dispatcher.Invoke(() =>
             StatText.Text = Loc.F("Session.StatFormat", stat.Fps, stat.MbitsPerSecond.ToString("F1"), stat.RoundTripMs, stat.EncodeMs, stat.EncoderName));
-        conn.ClipboardReceived += data => Dispatcher.Invoke(() => _clipboard?.SetClipboard(data));
+        // Honour the user's clipboard-sync choice in BOTH directions (outgoing is gated in OnLocalClipboardChanged).
+        conn.ClipboardReceived += data => Dispatcher.Invoke(() => { if (_settings.ClipboardSync) _clipboard?.SetClipboard(data); });
     }
 
     private void EnterSession()

@@ -69,11 +69,10 @@ public sealed class ClipboardBridge : IDisposable
                         Clipboard.SetImage(decoder.Frames[0]);
                     }
                     break;
-                case ClipboardFormat.FileList:
-                    var coll = new System.Collections.Specialized.StringCollection();
-                    coll.AddRange(data.AsFileList());
-                    Clipboard.SetFileDropList(coll);
-                    break;
+                // FileList is deliberately not applied: host paths mean nothing on this machine, and a
+                // hostile host could plant UNC paths that leak NetNTLM credentials when pasted.
+                default:
+                    return;
             }
             // Images are re-encoded differently on each side, so byte fingerprints alone let an
             // image ping-pong forever. Remember the sequence number our write produced instead.
@@ -99,9 +98,7 @@ public sealed class ClipboardBridge : IDisposable
                 encoder.Save(ms);
                 return new ClipboardData(ClipboardFormat.Png, ms.ToArray());
             }
-
-            if (Clipboard.ContainsFileDropList())
-                return ClipboardData.FromFileList(Clipboard.GetFileDropList().Cast<string>());
+            // File drop lists are not sent: local paths are useless on the host and only leak layout.
         }
         catch { }
         return ClipboardData.Empty;

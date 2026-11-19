@@ -43,6 +43,10 @@ public partial class App : Application
             return;
         }
 
+        // Single instance: two copies would each save a stale client.json snapshot over the other's
+        // sessions/secrets. A second launch pokes the first one to the front and exits.
+        if (!AcquireSingleInstance()) { Shutdown(0); return; }
+
         // A remote-desktop client should never hard-crash on a transient network/codec hiccup —
         // log and keep the session alive where we safely can.
         DispatcherUnhandledException += OnUnhandledException;
@@ -77,8 +81,57 @@ public partial class App : Application
         new Views.MainWindow().Show();
     }
 
+    private const string InstanceMutexName = @"Local\LiteRemote.Client";
+    private const string ActivateEventName = @"Local\LiteRemote.Client.Activate";
+    private Mutex? _instanceMutex;
+    private EventWaitHandle? _activateEvent;
+
+    private bool AcquireSingleInstance()
+    {
+        _instanceMutex = new Mutex(false, InstanceMutexName);
+        bool owned;
+        try { owned = _instanceMutex.WaitOne(0); }
+        catch (AbandonedMutexException) { owned = true; }   // previous owner crashed — we own it now
+        if (!owned)
+        {
+            try
+            {
+                using var ev = EventWaitHandle.OpenExisting(ActivateEventName);
+                ev.Set();
+                return false;
+            }
+            catch (WaitHandleCannotBeOpenedException) { }
+            // The other instance is still exiting (e.g. updater relaunch) — give it a moment, then take over.
+            try { owned = _instanceMutex.WaitOne(TimeSpan.FromSeconds(5)); }
+            catch (AbandonedMutexException) { owned = true; }
+            if (!owned) return false;
+        }
+
+        _activateEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ActivateEventName);
+        var t = new Thread(() =>
+        {
+            while (true)
+            {
+                try { _activateEvent.WaitOne(); } catch { return; }
+                Dispatcher.BeginInvoke(BringMainWindowToFront);
+            }
+        }) { IsBackground = true, Name = "SingleInstanceActivate" };
+        t.Start();
+        return true;
+    }
+
+    private void BringMainWindowToFront()
+    {
+        if (MainWindow is not { } w) return;
+        if (!w.IsVisible) w.Show();
+        if (w.WindowState == WindowState.Minimized) w.WindowState = WindowState.Normal;
+        // Topmost toggle defeats the foreground lock so the window really comes to the front.
+        w.Activate(); w.Topmost = true; w.Topmost = false; w.Focus();
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
+        try { _instanceMutex?.ReleaseMutex(); } catch { }
         // Safety net: never leave a VPN tunnel running in the background after the app quits.
         try { Services.VpnProcessTracker.KillAll(); } catch { }
         base.OnExit(e);

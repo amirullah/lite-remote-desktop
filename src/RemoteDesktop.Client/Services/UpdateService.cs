@@ -168,8 +168,10 @@ public static class UpdateService
         catch { return false; }
     }
 
-    /// <summary>Run the installer silently (UAC prompt once). Returns false if the user declined elevation.</summary>
-    public static bool LaunchInstaller(string setupPath, bool restartHost)
+    /// <summary>Run the installer silently (UAC prompt once). Returns the setup process, or null if it
+    /// could not be started. NOTE: the setup elevates ITSELF, so a declined UAC prompt is not an exception
+    /// here — it shows up as the setup process exiting while we are still alive (see UpdateFlow).</summary>
+    public static Process? LaunchInstaller(string setupPath, bool restartHost)
     {
         var args = "/SILENT /SUPPRESSMSGBOXES /NORESTART /SP- /UPDATE=1" + (restartHost ? " /RESTARTHOST=1" : "");
         try
@@ -178,12 +180,12 @@ public static class UpdateService
             // non-elevated signed-in user as the "original user" and relaunches the viewer/host as that
             // user. Starting it pre-elevated made those relaunches run elevated — or, with over-the-shoulder
             // UAC, under the admin's profile with the wrong config.
-            Process.Start(new ProcessStartInfo(setupPath, args) { UseShellExecute = true });
-            return true;
+            return Process.Start(new ProcessStartInfo(setupPath, args) { UseShellExecute = true });
         }
-        catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)   // ERROR_CANCELLED: UAC declined
+        catch (Win32Exception ex)   // e.g. 1223 ERROR_CANCELLED, or blocked by policy/AV
         {
-            return false;
+            Diag.Log("[update] installer start failed: " + ex.NativeErrorCode + " " + ex.Message);
+            return null;
         }
     }
 }

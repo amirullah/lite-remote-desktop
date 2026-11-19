@@ -40,15 +40,22 @@ public static class UpdateFlow
 
             status(Loc.T("Update.Starting"));
             bool restartHost = UpdateService.HostRunningForUser();
-            if (!UpdateService.LaunchInstaller(path, restartHost))
+            using var setup = UpdateService.LaunchInstaller(path, restartHost);
+            if (setup is null)
             {
                 status(Loc.T("Update.Cancelled"));
                 return false;
             }
-            // Give the installer a moment to start before we release our files.
-            await Task.Delay(800);
-            Application.Current.Shutdown();
-            return true;
+            // Do NOT exit ourselves: the setup elevates itself, so we can't see the UAC answer directly.
+            // If the user approves, the installer closes LiteRemote (PrepareToInstall) before replacing
+            // files and reopens it when done. If the setup process ends while we're still running, the
+            // install never happened (UAC declined / cancelled / failed) — keep the user's sessions alive.
+            status(Loc.T("Update.WaitingInstaller"));
+            await setup.WaitForExitAsync();
+            int code = -1; try { code = setup.ExitCode; } catch { }
+            Diag.Log("[update] setup exited while app still running, code " + code);
+            status(Loc.T("Update.Cancelled"));
+            return false;
         }
         catch (Exception ex)
         {

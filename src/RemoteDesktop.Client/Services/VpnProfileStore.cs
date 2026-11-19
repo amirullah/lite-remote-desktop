@@ -58,6 +58,7 @@ public static class VpnProfileStore
                 dest = Path.Combine(Dir, $"{name}-{h}.ovpn");
             }
             File.WriteAllText(dest, text);
+            RecordSource(source, dest);
             return dest;
         }
         catch (Exception ex)
@@ -67,14 +68,44 @@ public static class VpnProfileStore
         }
     }
 
-    /// <summary>If <paramref name="path"/> is gone, look for a stored copy with the same profile name.</summary>
+    // Provenance index (source full path <TAB> stored file name), written at import. A bare name match is
+    // not proof: another provider's "client.ovpn" may own the slot, so only recorded imports are trusted.
+    private static string IndexPath => Path.Combine(Dir, "sources.tsv");
+
+    private static void RecordSource(string source, string dest)
+    {
+        try
+        {
+            var key = Path.GetFullPath(source);
+            var lines = File.Exists(IndexPath) ? File.ReadAllLines(IndexPath) : Array.Empty<string>();
+            var keep = new System.Collections.Generic.List<string>();
+            foreach (var l in lines)
+                if (!l.StartsWith(key + "\t", StringComparison.OrdinalIgnoreCase)) keep.Add(l);
+            keep.Add(key + "\t" + Path.GetFileName(dest));
+            var tmp = IndexPath + ".tmp";
+            File.WriteAllLines(tmp, keep);
+            File.Move(tmp, IndexPath, true);
+        }
+        catch (Exception ex) { Diag.Log("[vpn] profile index write failed: " + ex.GetType().Name); }
+    }
+
+    /// <summary>If <paramref name="path"/> is gone, return the stored copy that was imported from exactly that
+    /// path (recorded at import), or null. Never matches by name alone — that could swap in another profile.</summary>
     public static string? FindStored(string path)
     {
         try
         {
-            var name = CopySuffix.Replace(Path.GetFileNameWithoutExtension(path), "");
-            var p = Path.Combine(Dir, name + ".ovpn");
-            return File.Exists(p) ? p : null;
+            if (!File.Exists(IndexPath)) return null;
+            var key = Path.GetFullPath(path) + "\t";
+            foreach (var l in File.ReadAllLines(IndexPath))
+            {
+                if (!l.StartsWith(key, StringComparison.OrdinalIgnoreCase)) continue;
+                var name = l[key.Length..];
+                if (name.Length == 0 || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return null;
+                var p = Path.Combine(Dir, name);
+                return File.Exists(p) ? p : null;
+            }
+            return null;
         }
         catch { return null; }
     }

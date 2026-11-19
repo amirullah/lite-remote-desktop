@@ -316,10 +316,20 @@ public sealed class ClientConfig
         // Write-then-swap so a crash mid-write never leaves a truncated client.json; the previous
         // version is kept as .bak for Load() to fall back on.
         var path = AppPaths.ClientConfig;
-        var tmp = path + ".tmp";
-        File.WriteAllText(tmp, JsonSerializer.Serialize(this, Json));
-        if (File.Exists(path)) File.Replace(tmp, path, path + ".bak", ignoreMetadataErrors: true);
-        else File.Move(tmp, path);
+        // Unique per save so two concurrent writers (e.g. the updater relaunch) never share one tmp file.
+        var tmp = $"{path}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            File.WriteAllText(tmp, JsonSerializer.Serialize(this, Json));
+            if (File.Exists(path)) File.Replace(tmp, path, path + ".bak", ignoreMetadataErrors: true);
+            else File.Move(tmp, path);
+        }
+        catch
+        {
+            // A failed swap (AV / lock) must not leave a growing pile of plaintext config copies behind.
+            try { File.Delete(tmp); } catch { }
+            throw;
+        }
     }
 
     private static ClientConfig? TryLoadBackup()

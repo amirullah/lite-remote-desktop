@@ -43,7 +43,13 @@ public partial class MainWindow : Window
         // Keep the active session window pinned over the content area as the shell moves/resizes.
         SizeChanged += (_, _) => RepositionActive();
         LocationChanged += (_, _) => RepositionActive();
-        StateChanged += (_, _) => { if (WindowState != WindowState.Minimized) RepositionActive(); };
+        StateChanged += (_, _) =>
+        {
+            if (WindowState == WindowState.Minimized) return;
+            // A tab activated while minimized was never shown — show + place it now.
+            if (_active != null && !_active.Win.IsVisible) ActivateTab(_active);
+            else RepositionActive();
+        };
         ContentArea.SizeChanged += (_, _) => RepositionActive();
 
         // The tab strip scrolls horizontally (no visible bar) — let the mouse wheel move it.
@@ -193,7 +199,7 @@ public partial class MainWindow : Window
                     {
                         IdMode = false, Host = s.Host, Port = s.Port,
                         Credential = cred, Settings = BuildInitialSettings(),
-                        VpnProfilePath = vpnPath, VpnUser = VpnUserBox.Text, VpnPass = VpnPassBox.Password,
+                        VpnProfilePath = vpnPath, VpnUser = VpnUserBox.Text.Trim(), VpnPass = VpnPassBox.Password,
                         Descriptor = s with { LastUsedUtc = DateTime.UtcNow },
                     });
                 }
@@ -297,7 +303,7 @@ public partial class MainWindow : Window
                     !string.IsNullOrWhiteSpace(VpnProfileBox.Text) && System.IO.File.Exists(VpnProfileBox.Text)
                     ? VpnProfileBox.Text : null;
                 win.ApplyDirect(RdpUserBox.Text, RdpPassBox.Password, RdpSaveCheck.IsChecked == true,
-                                vpnPath, VpnUserBox.Text, VpnPassBox.Password, NameBox.Text.Trim());
+                                vpnPath, VpnUserBox.Text.Trim(), VpnPassBox.Password, NameBox.Text.Trim());
             }
             AddSessionTab(win, s != null ? s.DisplayName
                                         : (NameBox.Text.Trim().Length > 0 ? NameBox.Text.Trim() : host));
@@ -405,7 +411,7 @@ public partial class MainWindow : Window
                 if (vpnPath != null)
                 {
                     req.VpnProfilePath = vpnPath;
-                    req.VpnUser = VpnUserBox.Text;
+                    req.VpnUser = VpnUserBox.Text.Trim();   // same as the saved profile / RDP path
                     req.VpnPass = VpnPassBox.Password;
                     // Remember the profile + VPN username; remember the VPN password when 'remember' is
                     // ticked (independent of the auth radio, so it also works for Google-auth sessions).
@@ -534,7 +540,9 @@ public partial class MainWindow : Window
             if (t == tab)
             {
                 if (t.Win is ISessionWindow sw) sw.SetChrome(!_shellFullscreen);   // hide own bar in fullscreen
-                t.Win.Show(); PositionOver(t.Win); try { t.Win.Activate(); } catch { }
+                // While the shell is minimized an explicit Show would pop the owned window up detached;
+                // the StateChanged restore path re-activates it instead.
+                if (WindowState != WindowState.Minimized) { t.Win.Show(); PositionOver(t.Win); try { t.Win.Activate(); } catch { } }
             }
             else t.Win.Hide();
             HighlightTab(t, t == tab);
