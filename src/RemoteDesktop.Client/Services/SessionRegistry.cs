@@ -114,10 +114,42 @@ public static class SessionRegistry
     /// <summary>Move/size a window using PHYSICAL pixels (Win32 SetWindowPos). This app is PerMonitorV2, so
     /// WPF's Left/Width DIP math misplaces a window when it moves between monitors of different scale (e.g.
     /// 100% ↔ 150%); positioning in device pixels is correct on every monitor.</summary>
-    public static void SetPhysicalBounds(Window w, int x, int y, int cw, int ch)
+    public static void SetPhysicalBounds(Window w, int x, int y, int cw, int ch, bool frameChanged = true)
     {
         var hwnd = new WindowInteropHelper(w).EnsureHandle();
-        SetWindowPos(hwnd, IntPtr.Zero, x, y, cw, ch, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        // SWP_FRAMECHANGED forces a non-client recalc + full repaint. It's needed after a style change
+        // (fullscreen in/out), but NOT for plain move/size — doing it on every step of a maximize/drag
+        // animation is what made the docked session window stutter and trail the shell.
+        SetWindowPos(hwnd, IntPtr.Zero, x, y, cw, ch,
+            SWP_NOZORDER | SWP_NOACTIVATE | (frameChanged ? SWP_FRAMECHANGED : 0));
+    }
+
+    /// <summary>
+    /// Keep a normal (bordered, non-maximized) window inside its monitor's WORK AREA, in physical pixels.
+    /// A fixed DIP size (e.g. 1120×760) becomes 1680×1140 px at 150% scaling — taller than a 1080p screen —
+    /// and CenterScreen then pushes the title bar above the top edge where it can't be grabbed.
+    /// <paramref name="full"/>: also pull it fully inside horizontally (on first show); a DPI change mid-drag
+    /// only fixes size and the top edge so it doesn't fight the user's drag.
+    /// </summary>
+    public static void FitToWorkArea(Window w, bool full)
+    {
+        try
+        {
+            if (!w.IsVisible || w.WindowState != WindowState.Normal || w.WindowStyle == WindowStyle.None) return;
+            var hwnd = new WindowInteropHelper(w).Handle;
+            if (hwnd == IntPtr.Zero) return;
+            var scr = System.Windows.Forms.Screen.FromHandle(hwnd);
+            var wa = scr.WorkingArea;
+            var (x, y, cw, ch) = GetPhysicalBounds(w);
+            // Deliberately parked off-screen (headless --rdp-test) → leave it alone.
+            if (!new System.Drawing.Rectangle(x, y, cw, ch).IntersectsWith(scr.Bounds)) return;
+            int nw = Math.Min(cw, wa.Width), nh = Math.Min(ch, wa.Height);
+            int nx = full ? Math.Clamp(x, wa.Left, wa.Right - nw) : x;
+            int ny = Math.Clamp(y, wa.Top, wa.Bottom - nh);   // the title bar must always be reachable
+            if (nx != x || ny != y || nw != cw || nh != ch)
+                SetWindowPos(hwnd, IntPtr.Zero, nx, ny, nw, nh, SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        catch { }
     }
 
     /// <summary>Fill a monitor edge-to-edge in physical pixels.</summary>

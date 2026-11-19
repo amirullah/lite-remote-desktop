@@ -52,6 +52,27 @@ public partial class App : Application
         Services.ThemeManager.Init(Services.ThemeManager.Parse(cfg.Theme));
         Services.Loc.Init(cfg.Language);
 
+        // Every bordered window must fit its monitor's work area — on first show and after it lands on a
+        // monitor with a different scale (a DIP size grows ×1.5 at 150% and the title bar goes off-screen).
+        EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent, new RoutedEventHandler((s, _) =>
+        {
+            if (s is Window w)
+                w.Dispatcher.BeginInvoke(() => SessionRegistry.FitToWorkArea(w, full: true), DispatcherPriority.Loaded);
+        }));
+        EventManager.RegisterClassHandler(typeof(Window), Window.DpiChangedEvent, new DpiChangedEventHandler((s, _) =>
+        {
+            if (s is not Window w) return;
+            // Wait until the user lets go of the window (a DPI change fires mid-drag across monitors).
+            var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+            t.Tick += (_, _) =>
+            {
+                if (System.Windows.Input.Mouse.LeftButton == System.Windows.Input.MouseButtonState.Pressed) return;
+                t.Stop();
+                SessionRegistry.FitToWorkArea(w, full: false);
+            };
+            t.Start();
+        }));
+
         // The window is created here (not via StartupUri) so the headless self-test above can skip it.
         new Views.MainWindow().Show();
     }

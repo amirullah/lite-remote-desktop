@@ -46,6 +46,13 @@ public partial class MainWindow : Window
         StateChanged += (_, _) => { if (WindowState != WindowState.Minimized) RepositionActive(); };
         ContentArea.SizeChanged += (_, _) => RepositionActive();
 
+        // The tab strip scrolls horizontally (no visible bar) — let the mouse wheel move it.
+        TabScroller.PreviewMouseWheel += (_, e) =>
+        {
+            TabScroller.ScrollToHorizontalOffset(TabScroller.HorizontalOffset - e.Delta);
+            e.Handled = true;
+        };
+
         Closing += (_, _) => Cleanup();
     }
 
@@ -477,6 +484,7 @@ public partial class MainWindow : Window
 
     private void ActivateTab(SessionTab tab)
     {
+        _lastPosWin = null;   // a (re)activated window may have been moved/hidden meanwhile — always place it
         _active = tab;
         foreach (var t in _tabs)
         {
@@ -488,6 +496,7 @@ public partial class MainWindow : Window
             else t.Win.Hide();
             HighlightTab(t, t == tab);
         }
+        tab.Container.BringIntoView();   // the strip scrolls when there are many tabs — keep the active one visible
     }
 
     private void AddTab_Click(object sender, RoutedEventArgs e) => ShowConnectForm();
@@ -523,10 +532,18 @@ public partial class MainWindow : Window
             var br = ContentArea.PointToScreen(new Point(ContentArea.ActualWidth, ContentArea.ActualHeight));
             int x = (int)System.Math.Round(tl.X), y = (int)System.Math.Round(tl.Y);
             int w = (int)System.Math.Round(br.X - tl.X), h = (int)System.Math.Round(br.Y - tl.Y);
-            if (w > 0 && h > 0) SessionRegistry.SetPhysicalBounds(win, x, y, w, h);
+            if (w <= 0 || h <= 0) return;
+            // SizeChanged + ContentArea.SizeChanged + LocationChanged all fire per animation step: skip
+            // identical rects, and don't force a frame recalc on a plain move/resize (that's the stutter).
+            if (ReferenceEquals(_lastPosWin, win) && _lastPos == (x, y, w, h)) return;
+            _lastPosWin = win; _lastPos = (x, y, w, h);
+            SessionRegistry.SetPhysicalBounds(win, x, y, w, h, frameChanged: false);
         }
         catch { }
     }
+
+    private Window? _lastPosWin;
+    private (int x, int y, int w, int h) _lastPos;
 
     private void RepositionActive()
     {
@@ -575,6 +592,7 @@ public partial class MainWindow : Window
             SessionRegistry.FillScreen(this, scr);
             _shellFullscreen = true;
             if (_active!.Win is ISessionWindow sw) sw.SetChrome(false);
+            _lastPosWin = null;
             RepositionActive();
             _fsHover.Start();
         }
@@ -588,6 +606,7 @@ public partial class MainWindow : Window
             WindowState = _fsPrevState;
             _shellFullscreen = false;
             foreach (var t in _tabs) if (t.Win is ISessionWindow sw) sw.SetChrome(true);
+            _lastPosWin = null;
             RepositionActive();
         }
     }

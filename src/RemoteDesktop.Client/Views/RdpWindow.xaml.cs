@@ -45,6 +45,25 @@ public partial class RdpWindow : Window, Services.ISessionWindow
     private readonly DispatcherTimer _hover = new() { Interval = TimeSpan.FromMilliseconds(120) };
 
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT p);
+
+    [StructLayout(LayoutKind.Sequential)] private struct RECT { public int L, T, R, B; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WINDOWPLACEMENT { public int length, flags, showCmd; public POINT min, max; public RECT normal; }
+    [DllImport("user32.dll")] private static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT wp);
+
+    /// <summary>Physical bounds a window returns to when restored. For a Maximized window GetWindowRect gives
+    /// the maximized rect, which would then become the restore size; use the placement's normal rect instead
+    /// (workspace coords -> screen coords via the monitor's work-area offset).</summary>
+    internal static (int x, int y, int w, int h) GetNormalPhysicalBounds(Window w)
+    {
+        if (w.WindowState != WindowState.Maximized) return SessionRegistry.GetPhysicalBounds(w);
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(w).Handle;
+        var wp = new WINDOWPLACEMENT { length = Marshal.SizeOf<WINDOWPLACEMENT>() };
+        if (hwnd == IntPtr.Zero || !GetWindowPlacement(hwnd, ref wp)) return SessionRegistry.GetPhysicalBounds(w);
+        var s = System.Windows.Forms.Screen.FromHandle(hwnd);
+        int ox = s.WorkingArea.Left - s.Bounds.Left, oy = s.WorkingArea.Top - s.Bounds.Top;
+        return (wp.normal.L + ox, wp.normal.T + oy, wp.normal.R - wp.normal.L, wp.normal.B - wp.normal.T);
+    }
     [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X, Y; }
 
     public RdpWindow(string host, string? user = null)
@@ -76,6 +95,9 @@ public partial class RdpWindow : Window, Services.ISessionWindow
         _resize.Tick += (_, _) => { _resize.Stop(); ApplyRemoteSize(); };
         _hover.Tick += Hover_Tick;
         SizeChanged += (_, _) => { _resize.Stop(); _resize.Start(); };   // debounce window resizes
+        // PerMonitorV2 keeps the DIP size across a DPI change, so SizeChanged may not fire while the physical
+        // size and scale factor did change; resend the display settings through the same debounce.
+        DpiChanged += (_, _) => { _resize.Stop(); _resize.Start(); };
         Loaded += OnLoaded;
 
         // Register as a live session so OTHER windows can switch to this one, and keep our own switch
@@ -674,7 +696,7 @@ public partial class RdpWindow : Window, Services.ISessionWindow
             var target = onScreen ?? CurrentScreen;
             if (_fullscreen) { SessionRegistry.FillScreen(this, target); return; }
             _prevState = WindowState; _prevStyle = WindowStyle; _prevResize = ResizeMode;
-            _prevPhys = SessionRegistry.GetPhysicalBounds(this);
+            _prevPhys = GetNormalPhysicalBounds(this);   // normal rect, so Restore still works after leaving fullscreen
             TopBar.Visibility = Visibility.Collapsed;
             WindowState = WindowState.Normal;   // drop any maximized state before positioning manually
             WindowStyle = WindowStyle.None;
@@ -725,11 +747,13 @@ public partial class RdpWindow : Window, Services.ISessionWindow
     {
         EnsureBar();
         RefreshBarSwitch();   // keep the switch buttons current each time the bar appears
-        var (dx, dy) = DpiScale();
-        _bar!.Left = topLeftPhysical.X / dx;
-        _bar.Top = topLeftPhysical.Y / dy;
-        _bar.Width = ActualWidth;
-        if (!_bar.IsVisible) _bar.Show();
+        // Place in PHYSICAL px: the bar may still carry another monitor's DPI, so DIP Left/Top/Width
+        // computed with this window's DPI would land shifted/scaled on mixed-DPI setups.
+        var tr = PointToScreen(new Point(ActualWidth, 0));
+        int barH = (int)Math.Round(44 * DpiScale().sy);
+        SessionRegistry.SetPhysicalBounds(_bar!, (int)topLeftPhysical.X, (int)topLeftPhysical.Y,
+            (int)(tr.X - topLeftPhysical.X), barH, frameChanged: false);   // EnsureHandle'd inside; no flash at old spot
+        if (!_bar!.IsVisible) _bar.Show();
     }
 
     private void HideBar() { try { if (_bar?.IsVisible == true) _bar.Hide(); } catch { } }

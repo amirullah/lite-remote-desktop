@@ -431,7 +431,7 @@ public partial class SessionWindow : Window, ISessionWindow
             var target = onScreen ?? CurrentScreen;
             if (_fullscreen) { SessionRegistry.FillScreen(this, target); return; }
             _preFullscreenState = WindowState; _preFullscreenStyle = WindowStyle; _preFullscreenResize = ResizeMode;
-            _preFullscreenPhys = SessionRegistry.GetPhysicalBounds(this);
+            _preFullscreenPhys = RdpWindow.GetNormalPhysicalBounds(this);   // normal rect, so Restore still works after leaving fullscreen
             WindowState = WindowState.Normal;
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;
