@@ -247,6 +247,8 @@ internal sealed class TrayContext : ApplicationContext
         var emails = InputDialog.Show("Google login",
             "Allowed emails (comma-separated):", masked: false,
             string.Join(", ", _config.AllowedGoogleEmails));
+        // Cancel returns null; treat it as abort instead of wiping the allow-list.
+        if (emails is null) return;
 
         _config.AllowGoogle = true;
         _config.GoogleClientId = clientId.Trim();

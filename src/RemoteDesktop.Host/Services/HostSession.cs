@@ -351,6 +351,7 @@ public sealed class HostSession
         var h264Tiles = new List<Tile>(1);
         uint frameId = 0;
         int idleFrames = 0;
+        long lastSendTick = Environment.TickCount64;
         var sw = new Stopwatch();
         VideoConfig? announced = null;
         _secondStartTicks = Stopwatch.GetTimestamp();
@@ -382,6 +383,15 @@ public sealed class HostSession
         {
             try
             {
+                // Heartbeat: a static/privacy screen sends nothing, so a viewer that vanished without
+                // FIN/RST would never fail a write. A tiny Pong (viewers already ignore it) keeps data
+                // in flight so TCP gives up on a dead peer and the session (BlockInput, privacy) ends.
+                if (Environment.TickCount64 - lastSendTick >= 5000)
+                {
+                    _channel.TrySend(Message.Empty(MessageType.Pong));
+                    lastSendTick = Environment.TickCount64;
+                }
+
                 // Create or swap the capture for the requested display — only this thread ever
                 // creates or disposes capture objects.
                 var settings = _settings;
@@ -566,6 +576,7 @@ public sealed class HostSession
                     System.Buffers.ArrayPool<byte>.Shared.Return(frameMsg.Payload);
                     _keyFrameRequested = true;
                 }
+                else lastSendTick = Environment.TickCount64;
 
                 AccountBandwidth(frameBytes);
                 adaptive.Observe(encodeMs, frameBytes, _measuredMbps);

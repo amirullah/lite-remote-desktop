@@ -102,6 +102,7 @@ public sealed class RelayClient : IAsyncDisposable
         {
             var tcp = new TcpClient { NoDelay = true };
             await tcp.ConnectAsync(_host, _port, _cts.Token).ConfigureAwait(false);
+            HostServer.EnableKeepAlive(tcp.Client); // relay-joined session sockets need dead-peer detection too
             var stream = tcp.GetStream();
 
             await RelayProtocol.SendAsync(stream, new RelayMsg { Op = "join", Session = session }, _cts.Token)

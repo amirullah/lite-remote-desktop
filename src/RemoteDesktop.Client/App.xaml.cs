@@ -88,7 +88,10 @@ public partial class App : Application
 
     private bool AcquireSingleInstance()
     {
-        _instanceMutex = new Mutex(false, InstanceMutexName);
+        // An elevated first instance owns the mutex with an admin-only DACL; access denied means
+        // another instance exists — exit quietly instead of crashing before the global handler is hooked.
+        try { _instanceMutex = new Mutex(false, InstanceMutexName); }
+        catch (UnauthorizedAccessException) { return false; }
         bool owned;
         try { owned = _instanceMutex.WaitOne(0); }
         catch (AbandonedMutexException) { owned = true; }   // previous owner crashed — we own it now
@@ -101,6 +104,8 @@ public partial class App : Application
                 return false;
             }
             catch (WaitHandleCannotBeOpenedException) { }
+            // Elevated instance's event is not openable from medium integrity — can't raise it, just exit.
+            catch (UnauthorizedAccessException) { return false; }
             // The other instance is still exiting (e.g. updater relaunch) — give it a moment, then take over.
             try { owned = _instanceMutex.WaitOne(TimeSpan.FromSeconds(5)); }
             catch (AbandonedMutexException) { owned = true; }

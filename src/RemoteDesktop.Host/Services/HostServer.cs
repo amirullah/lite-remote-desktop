@@ -82,6 +82,19 @@ public sealed class HostServer : IAsyncDisposable
         return Task.Run(() => AcceptLoopAsync(_cts.Token));
     }
 
+    // Keepalive so a peer that vanished without FIN/RST is detected (~30 s) instead of never.
+    internal static void EnableKeepAlive(Socket s)
+    {
+        try
+        {
+            s.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+            s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, 15);
+            s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, 5);
+            s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, 3);
+        }
+        catch (SocketException) { } // best effort; the app-level heartbeat still covers it
+    }
+
     private async Task AcceptLoopAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -108,6 +121,7 @@ public sealed class HostServer : IAsyncDisposable
             }
 
             tcp.NoDelay = true; // latency over throughput for interactive input
+            EnableKeepAlive(tcp.Client);
             await ServeStreamAsync(tcp.GetStream(), remote?.ToString() ?? "?", ct).ConfigureAwait(false);
         }
         catch (AuthenticationException ex)
