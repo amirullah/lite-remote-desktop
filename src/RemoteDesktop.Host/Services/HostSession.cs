@@ -346,6 +346,7 @@ public sealed class HostSession
         // H.264 path (physical PCs with a hardware encoder). Created lazily when the client asks for
         // H.264 and an encoder initialises for the current geometry; otherwise we stay on JPEG tiles.
         H264Encoder? h264 = null;
+        long h264CreatedAt = 0;   // when the current H.264 encoder was (re)built — guards forced-keyframe rebuilds
         var activeCodec = VideoCodec.JpegTiles;
         VideoCodec? negotiatedFor = null; // codec the client asked for at the last negotiation
         var h264Tiles = new List<Tile>(1);
@@ -522,6 +523,7 @@ public sealed class HostSession
                         // JPEG so the viewer keeps showing video instead of stalling on a slow SW encoder.
                         h264 = H264Encoder.TryCreate(frame.Width, frame.Height, fps, bitrate,
                             preferHardware: true, out string why, hardwareOnly: true);
+                        h264CreatedAt = Environment.TickCount64;
                         if (h264 != null) activeCodec = VideoCodec.H264;
                         else _log.LogInformation("H.264 requested but no hardware encoder ({Why}); using JPEG tiles.", why);
                     }
@@ -539,6 +541,19 @@ public sealed class HostSession
                 int encodeMs;
                 if (activeCodec == VideoCodec.H264 && h264 != null)
                 {
+                    // A viewer asked for a keyframe (its decoder lost sync / was rebuilt / got a new surface).
+                    // The MF encoder has no portable "force IDR" here and its GOP may be unbounded, so
+                    // rebuild it: a fresh encoder always starts with SPS/PPS + IDR. Skip if it was just
+                    // (re)built — it is about to emit one anyway — and rate-limit so requests can't thrash it.
+                    long nowTick = Environment.TickCount64;
+                    if (wantKey && nowTick - h264CreatedAt > 300)
+                    {
+                        int kfps = Math.Max(adaptive.CurrentFps, 30);
+                        var fresh = H264Encoder.TryCreate(frame.Width, frame.Height, kfps,
+                            EstimateH264Bitrate(frame.Width, frame.Height, kfps), preferHardware: true, out _, hardwareOnly: true);
+                        if (fresh != null) { h264.Dispose(); h264 = fresh; }
+                        h264CreatedAt = nowTick;   // also throttles retries if the rebuild failed
+                    }
                     byte[] annexB = h264.Encode(frame.Bgra, frame.Stride, out wasKey);
                     encodeMs = (int)sw.ElapsedMilliseconds;
                     if (annexB.Length == 0) { PaceFrame(sw, adaptive); continue; } // encoder still warming up

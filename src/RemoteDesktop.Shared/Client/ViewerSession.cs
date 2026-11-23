@@ -76,4 +76,8 @@ public sealed class ViewerSession
 
     public ValueTask SendWheelAsync(short deltaX, short deltaY, ushort nx, ushort ny, CancellationToken ct = default)
         => _channel.SendAsync(PayloadCodec.MouseWheelMsg(new MouseWheelEvent(deltaX, deltaY, nx, ny)), ct);
+
+    /// <summary>Send a Windows virtual-key press/release. ScanCode 0 → the host injects by VK.</summary>
+    public ValueTask SendKeyAsync(ushort virtualKey, bool down, bool extended = false, CancellationToken ct = default)
+        => _channel.SendAsync(PayloadCodec.KeyMsg(new KeyEventData(virtualKey, 0, down, extended)), ct);
 }

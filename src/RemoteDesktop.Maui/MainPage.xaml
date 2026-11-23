@@ -2,26 +2,134 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="RemoteDesktop.Maui.MainPage"
-             Title="LiteRemote">
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="{AppThemeBinding Light=#F2F6FD, Dark=#0A1220}">
+    <ContentPage.Resources>
+        <Style x:Key="FieldLabel" TargetType="Label">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontAttributes" Value="Bold"/>
+            <Setter Property="TextColor" Value="{AppThemeBinding Light=#5B6B86, Dark=#8FA3C4}"/>
+            <Setter Property="Margin" Value="2,6,0,2"/>
+        </Style>
+        <Style x:Key="Field" TargetType="Border">
+            <Setter Property="StrokeShape" Value="RoundRectangle 10"/>
+            <Setter Property="Stroke" Value="{AppThemeBinding Light=#D5DFEF, Dark=#22335A}"/>
+            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#EEF3FB, Dark=#0D1628}"/>
+            <Setter Property="Padding" Value="10,0"/>
+        </Style>
+        <Style x:Key="Seg" TargetType="Button">
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="HeightRequest" Value="40"/>
+            <Setter Property="BackgroundColor" Value="Transparent"/>
+            <Setter Property="TextColor" Value="{AppThemeBinding Light=#5B6B86, Dark=#8FA3C4}"/>
+        </Style>
+    </ContentPage.Resources>
+
     <ScrollView>
-        <VerticalStackLayout Padding="24" Spacing="14" VerticalOptions="Center">
-            <Label Text="LiteRemote" FontSize="28" FontAttributes="Bold" HorizontalOptions="Center" />
-            <Label Text="Connect to a Windows host" HorizontalOptions="Center" TextColor="Gray" />
+        <VerticalStackLayout Padding="22,40,22,24" Spacing="6" MaximumWidthRequest="520">
+            <!-- update banner (shown when GitHub has a newer APK) -->
+            <Border x:Name="UpdateBanner" IsVisible="False" StrokeShape="RoundRectangle 14" StrokeThickness="0"
+                    BackgroundColor="#2F7CF6" Padding="14,10" Margin="0,0,0,14">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                    <Label x:Name="UpdateText" TextColor="White" FontSize="13" VerticalOptions="Center"/>
+                    <Button x:Name="UpdateBtn" Grid.Column="1" Text="Perbarui" BackgroundColor="White" TextColor="#2F7CF6"
+                            FontAttributes="Bold" CornerRadius="10" HeightRequest="38" Padding="14,0" Clicked="Update_Clicked"/>
+                </Grid>
+            </Border>
 
-            <Entry x:Name="HostEntry" Placeholder="Host (IP or name)" Text="192.168.1.10" Keyboard="Url" />
-            <Entry x:Name="PortEntry" Placeholder="Port" Text="7443" Keyboard="Numeric" />
-            <Entry x:Name="PasswordEntry" Placeholder="Password" IsPassword="True" />
+            <!-- brand -->
+            <HorizontalStackLayout Spacing="14" Margin="2,0,0,18">
+                <Border WidthRequest="48" HeightRequest="48" StrokeThickness="0" StrokeShape="RoundRectangle 14" BackgroundColor="#2F7CF6">
+                    <Label Text="◆" FontSize="22" TextColor="White" HorizontalOptions="Center" VerticalOptions="Center"/>
+                </Border>
+                <VerticalStackLayout VerticalOptions="Center">
+                    <Label Text="LiteRemote" FontSize="26" FontAttributes="Bold" TextColor="{AppThemeBinding Light=#0E1B33, Dark=White}"/>
+                    <Label Text="Remote desktop cepat · ringan · aman" FontSize="13" TextColor="{AppThemeBinding Light=#5B6B86, Dark=#8FA3C4}"/>
+                </VerticalStackLayout>
+            </HorizontalStackLayout>
 
-            <Label Text="— or connect by ID —" HorizontalOptions="Center" TextColor="Gray" Margin="0,6" />
-            <Entry x:Name="IdEntry" Placeholder="9-digit ID (leave blank for direct)" Keyboard="Numeric" />
-            <Entry x:Name="RelayEntry" Placeholder="Relay address (host:port)" Keyboard="Url" />
+            <!-- card -->
+            <Border StrokeShape="RoundRectangle 18" Padding="18" StrokeThickness="1"
+                    Stroke="{AppThemeBinding Light=#D5DFEF, Dark=#22335A}"
+                    BackgroundColor="{AppThemeBinding Light=White, Dark=#111C30}">
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="JENIS KONEKSI" Style="{StaticResource FieldLabel}"/>
+                    <Border Style="{StaticResource Field}" Padding="4">
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="4">
+                            <Button x:Name="ModeAddrBtn" Text="Alamat IP" Style="{StaticResource Seg}" Clicked="ModeAddr_Clicked"/>
+                            <Button x:Name="ModeIdBtn" Grid.Column="1" Text="ID (relay)" Style="{StaticResource Seg}" Clicked="ModeId_Clicked"/>
+                        </Grid>
+                    </Border>
 
-            <Button x:Name="ConnectButton" Text="Connect" Clicked="OnConnectClicked" />
-            <ActivityIndicator x:Name="Busy" IsRunning="False" IsVisible="False" />
+                    <!-- address mode -->
+                    <VerticalStackLayout x:Name="AddrPanel" Spacing="6">
+                        <Grid ColumnDefinitions="*,100" ColumnSpacing="10">
+                            <VerticalStackLayout>
+                                <Label Text="ALAMAT HOST" Style="{StaticResource FieldLabel}"/>
+                                <Border Style="{StaticResource Field}">
+                                    <Entry x:Name="HostEntry" Placeholder="mis. 100.89.119.76" Keyboard="Url"/>
+                                </Border>
+                            </VerticalStackLayout>
+                            <VerticalStackLayout Grid.Column="1">
+                                <Label Text="PORT" Style="{StaticResource FieldLabel}"/>
+                                <Border Style="{StaticResource Field}">
+                                    <Entry x:Name="PortEntry" Text="7443" Keyboard="Numeric"/>
+                                </Border>
+                            </VerticalStackLayout>
+                        </Grid>
+                    </VerticalStackLayout>
 
-            <Label x:Name="StatusLabel" HorizontalOptions="Center" />
-            <Label x:Name="FingerprintLabel" FontSize="11" TextColor="Gray"
-                   HorizontalOptions="Center" LineBreakMode="CharacterWrap" />
+                    <!-- ID mode -->
+                    <VerticalStackLayout x:Name="IdPanel" Spacing="6" IsVisible="False">
+                        <Label Text="ID MITRA" Style="{StaticResource FieldLabel}"/>
+                        <Border Style="{StaticResource Field}">
+                            <Entry x:Name="IdEntry" Placeholder="9 digit, mis. 123 456 789" Keyboard="Numeric"/>
+                        </Border>
+                        <Label Text="SERVER RELAY" Style="{StaticResource FieldLabel}"/>
+                        <Border Style="{StaticResource Field}">
+                            <Entry x:Name="RelayEntry" Placeholder="host:port" Keyboard="Url"/>
+                        </Border>
+                    </VerticalStackLayout>
+
+                    <Label Text="PASSWORD AKSES HOST" Style="{StaticResource FieldLabel}"/>
+                    <Border Style="{StaticResource Field}">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <Entry x:Name="PasswordEntry" IsPassword="True" Placeholder="Password dari tray LiteRemote Host"/>
+                            <Button x:Name="EyeBtn" Grid.Column="1" Text="👁" BackgroundColor="Transparent" Padding="8,0"
+                                    TextColor="{AppThemeBinding Light=#5B6B86, Dark=#8FA3C4}" Clicked="Eye_Clicked"/>
+                        </Grid>
+                    </Border>
+                    <Label Text="KUALITAS" Style="{StaticResource FieldLabel}"/>
+                    <Border Style="{StaticResource Field}" Padding="4">
+                        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="4">
+                            <Button x:Name="QSaverBtn" Text="Hemat data" Style="{StaticResource Seg}" Clicked="Quality_Clicked" CommandParameter="saver"/>
+                            <Button x:Name="QBalancedBtn" Grid.Column="1" Text="Seimbang" Style="{StaticResource Seg}" Clicked="Quality_Clicked" CommandParameter="balanced"/>
+                            <Button x:Name="QSharpBtn" Grid.Column="2" Text="Tajam" Style="{StaticResource Seg}" Clicked="Quality_Clicked" CommandParameter="sharp"/>
+                        </Grid>
+                    </Border>
+
+                    <HorizontalStackLayout Spacing="4">
+                        <CheckBox x:Name="RememberCheck" Color="#2F7CF6"/>
+                        <Label Text="Ingat password di HP ini (tersimpan aman)" VerticalOptions="Center" FontSize="13"
+                               TextColor="{AppThemeBinding Light=#0E1B33, Dark=#DCE6F7}"/>
+                    </HorizontalStackLayout>
+
+                    <Button x:Name="ConnectButton" Text="Sambungkan" Clicked="OnConnectClicked"
+                            BackgroundColor="#2F7CF6" TextColor="White" FontSize="16" FontAttributes="Bold"
+                            CornerRadius="12" HeightRequest="50" Margin="0,8,0,0"/>
+                    <Label x:Name="StatusLabel" HorizontalOptions="Center" TextColor="#E5484D" FontSize="13"/>
+                </VerticalStackLayout>
+            </Border>
+
+            <Label Margin="4,14,4,0" FontSize="12" TextColor="{AppThemeBinding Light=#5B6B86, Dark=#8FA3C4}"
+                   Text="Tips: di sesi, ketuk = klik · tahan = klik kanan · cubit = zoom · geser dua jari = scroll · tombol ⌨ untuk keyboard."/>
+            <Label x:Name="VersionLabel" Margin="4,10,4,0" FontSize="11" HorizontalOptions="Center"
+                   TextColor="{AppThemeBinding Light=#8A99B3, Dark=#5B6B86}">
+                <Label.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="Version_Tapped"/>
+                </Label.GestureRecognizers>
+            </Label>
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>

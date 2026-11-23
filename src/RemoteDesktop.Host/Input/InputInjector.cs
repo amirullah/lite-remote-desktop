@@ -100,11 +100,14 @@ public sealed class InputInjector
                       | (down ? 0u : KEYEVENTF_KEYUP)
                       | (extended ? KEYEVENTF_EXTENDEDKEY : 0u),
         };
-        // If we somehow have no scancode, fall back to the virtual key.
+        // No scancode (e.g. the Android viewer sends VKs): inject by VK, but KEEP the extended bit and give
+        // apps a real scancode too — otherwise arrows/Home/End/Del/Win look like their numpad twins and
+        // Shift+Arrow selection breaks with NumLock on.
         if (scanCode == 0)
         {
             input.U.ki.wVk = virtualKey;
-            input.U.ki.dwFlags = down ? 0u : KEYEVENTF_KEYUP;
+            input.U.ki.wScan = (ushort)MapVirtualKey(virtualKey, MAPVK_VK_TO_VSC);
+            input.U.ki.dwFlags = (down ? 0u : KEYEVENTF_KEYUP) | (extended ? KEYEVENTF_EXTENDEDKEY : 0u);
         }
         SendOne(input);
     }
@@ -158,6 +161,10 @@ public sealed class InputInjector
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
+
+    private const uint MAPVK_VK_TO_VSC = 0;
+    [DllImport("user32.dll")]
+    private static extern uint MapVirtualKey(uint uCode, uint uMapType);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);

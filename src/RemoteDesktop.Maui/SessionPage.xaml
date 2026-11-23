@@ -4,13 +4,88 @@
              xmlns:ctrl="clr-namespace:RemoteDesktop.Maui.Controls"
              x:Class="RemoteDesktop.Maui.SessionPage"
              Title="Session"
+             Shell.NavBarIsVisible="False"
+             NavigationPage.HasNavigationBar="False"
              BackgroundColor="Black">
-    <Grid>
-        <ctrl:RemoteScreenView x:Name="Screen" />
-        <Label x:Name="StatusLabel"
-               Text="Connecting…"
-               TextColor="White"
-               HorizontalOptions="Center"
-               VerticalOptions="Center" />
+    <ContentPage.Resources>
+        <Style x:Key="Fab" TargetType="Button">
+            <Setter Property="BackgroundColor" Value="#B3202634"/>
+            <Setter Property="TextColor" Value="White"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="CornerRadius" Value="20"/>
+            <Setter Property="HeightRequest" Value="40"/>
+            <Setter Property="MinimumWidthRequest" Value="44"/>
+            <Setter Property="Padding" Value="12,0"/>
+        </Style>
+        <Style x:Key="Key" TargetType="Button">
+            <Setter Property="BackgroundColor" Value="#2B3445"/>
+            <Setter Property="TextColor" Value="White"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="HeightRequest" Value="38"/>
+            <Setter Property="MinimumWidthRequest" Value="46"/>
+            <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="Margin" Value="3,0"/>
+        </Style>
+    </ContentPage.Resources>
+
+    <Grid RowDefinitions="*,Auto">
+        <!-- Full-screen remote picture (letterboxed/zoomed inside the view) -->
+        <ctrl:RemoteScreenView x:Name="Screen" Grid.Row="0"/>
+
+        <Label x:Name="StatusLabel" Grid.Row="0"
+               Text="Menghubungkan…" TextColor="White" FontSize="15"
+               BackgroundColor="#99000000" Padding="14,8"
+               HorizontalOptions="Center" VerticalOptions="Center"/>
+
+        <!-- Floating actions (top-right) -->
+        <HorizontalStackLayout Grid.Row="0" Spacing="8" Margin="0,10,10,0"
+                               HorizontalOptions="End" VerticalOptions="Start">
+            <Button x:Name="KeyboardBtn" Text="⌨" Style="{StaticResource Fab}" Clicked="Keyboard_Clicked"/>
+            <Button x:Name="FitBtn" Text="⤢" Style="{StaticResource Fab}" Clicked="Fit_Clicked" IsVisible="False"/>
+            <Button Text="✕" Style="{StaticResource Fab}" Clicked="Close_Clicked"/>
+        </HorizontalStackLayout>
+
+        <!-- Hidden text box that summons the soft keyboard; typing is forwarded to the host. An Editor
+             (multi-line), not an Entry: Enter then arrives as a '\n' character instead of an IME "Done"
+             action that would close the keyboard after every Enter. -->
+        <Editor x:Name="KeyInput" Grid.Row="0" Opacity="0.01" WidthRequest="2" HeightRequest="2"
+                HorizontalOptions="Start" VerticalOptions="End" AutoSize="Disabled"
+                IsSpellCheckEnabled="False" IsTextPredictionEnabled="False" Keyboard="Plain"/>
+
+        <!-- Special keys (shown with the keyboard) -->
+        <ScrollView x:Name="KeysBar" Grid.Row="1" Orientation="Horizontal" IsVisible="False"
+                    BackgroundColor="#151A24" Padding="4,6">
+            <HorizontalStackLayout>
+                <Button Text="⌄" Style="{StaticResource Key}" Clicked="HideKeys_Clicked" BackgroundColor="#3A2B33"/>
+                <Button x:Name="CtrlBtn" Text="Ctrl" Style="{StaticResource Key}" Clicked="Mod_Clicked" CommandParameter="ctrl"/>
+                <Button x:Name="AltBtn" Text="Alt" Style="{StaticResource Key}" Clicked="Mod_Clicked" CommandParameter="alt"/>
+                <Button x:Name="ShiftBtn" Text="Shift" Style="{StaticResource Key}" Clicked="Mod_Clicked" CommandParameter="shift"/>
+                <Button Text="Win" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="91"/>
+                <Button Text="Esc" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="27"/>
+                <Button Text="Tab" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="9"/>
+                <Button Text="Del" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="46"/>
+                <Button Text="←" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="37"/>
+                <Button Text="↑" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="38"/>
+                <Button Text="↓" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="40"/>
+                <Button Text="→" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="39"/>
+                <Button Text="Home" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="36"/>
+                <Button Text="End" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="35"/>
+                <Button Text="PgUp" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="33"/>
+                <Button Text="PgDn" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="34"/>
+                <Button Text="F1" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="112"/>
+                <Button Text="F2" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="113"/>
+                <Button Text="F3" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="114"/>
+                <Button Text="F4" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="115"/>
+                <Button Text="F5" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="116"/>
+                <Button Text="F6" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="117"/>
+                <Button Text="F7" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="118"/>
+                <Button Text="F8" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="119"/>
+                <Button Text="F9" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="120"/>
+                <Button Text="F10" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="121"/>
+                <Button Text="F11" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="122"/>
+                <Button Text="F12" Style="{StaticResource Key}" Clicked="Key_Clicked" CommandParameter="123"/>
+            </HorizontalStackLayout>
+        </ScrollView>
     </Grid>
 </ContentPage>
