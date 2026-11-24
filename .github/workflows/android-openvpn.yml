@@ -1,0 +1,28 @@
+name: android-openvpn
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/android-openvpn.yml
+      - build/android-openvpn/**
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r27c
+          add-to-path: false
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build file
+      - name: Build libovpnexec.so
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          WORK: ${{ runner.temp }}/ovpn
+          OUT: ${{ github.workspace }}/out
+        run: bash build/android-openvpn/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libovpnexec-arm64
+          path: out/
