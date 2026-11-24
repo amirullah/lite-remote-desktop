@@ -91,6 +91,10 @@
                                     <Label Text="{Binding Subtitle}" FontSize="12" LineBreakMode="TailTruncation"
                                            TextColor="{AppThemeBinding Light=#5B6B86, Dark=#8FA3C4}"/>
                                 </VerticalStackLayout>
+                                <Border Grid.Column="0" IsVisible="{Binding HasVpn}" HorizontalOptions="Center" VerticalOptions="End" Margin="0,0,0,-8"
+                                        StrokeThickness="0" StrokeShape="RoundRectangle 6" BackgroundColor="#2F7CF6" Padding="6,1">
+                                    <Label Text="VPN" FontSize="10" FontAttributes="Bold" TextColor="White"/>
+                                </Border>
                                 <Button Grid.Column="2" Text="✎" FontSize="18" WidthRequest="40" HeightRequest="40" Padding="0"
                                         BackgroundColor="Transparent" TextColor="#2F7CF6" Clicked="Edit_Clicked"
                                         SemanticProperties.Description="Ubah sesi"/>
@@ -111,6 +115,12 @@
                    TextColor="{AppThemeBinding Light=#8A99B3, Dark=#5B6B86}">
                 <Label.GestureRecognizers>
                     <TapGestureRecognizer Tapped="Version_Tapped"/>
+                </Label.GestureRecognizers>
+            </Label>
+            <Label Text="Lisensi" Margin="4,4,4,0" FontSize="12" HorizontalOptions="Center" TextColor="#2F7CF6"
+                   TextDecorations="Underline">
+                <Label.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="License_Tapped"/>
                 </Label.GestureRecognizers>
             </Label>
         </VerticalStackLayout>

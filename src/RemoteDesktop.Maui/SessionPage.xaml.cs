@@ -30,10 +30,17 @@ public partial class SessionPage : ContentPage, IRemoteInputSink
     private readonly SessionSettings _settings;
     private ushort _lastMoveX = ushort.MaxValue, _lastMoveY = ushort.MaxValue;
 
-    public SessionPage(Func<CancellationToken, Task<ConnectOutcome>> connect, string title, SessionSettings? settings = null)
+    // Optional campus-VPN step run before every (re)connect, and cleanup when the page closes.
+    private readonly Func<Action<string>, CancellationToken, Task>? _prepare;
+    private readonly Action? _onClosed;
+
+    public SessionPage(Func<CancellationToken, Task<ConnectOutcome>> connect, string title, SessionSettings? settings = null,
+        Func<Action<string>, CancellationToken, Task>? prepare = null, Action? onClosed = null)
     {
         InitializeComponent();
         _connect = connect;
+        _prepare = prepare;
+        _onClosed = onClosed;
         _settings = settings ?? new SessionSettings { PreferredCodec = VideoCodec.H264, MaxFps = 30, TargetFps = 30, Quality = 65 };
         Title = title;
         _gestures = new TouchGestures(_viewport, this, (float)DeviceDisplay.MainDisplayInfo.Density);
@@ -88,7 +95,12 @@ public partial class SessionPage : ContentPage, IRemoteInputSink
         try
         {
             ConnectOutcome outcome;
-            try { outcome = await _connect(_cts.Token); }
+            try
+            {
+                if (_prepare is not null)
+                    await _prepare(msg => MainThread.BeginInvokeOnMainThread(() => { if (!_cts.IsCancellationRequested) ShowStatus(msg); }), _cts.Token);
+                outcome = await _connect(_cts.Token);
+            }
             catch (OperationCanceledException) { return false; }
             catch (Exception ex) { outcome = new ConnectOutcome(null, false, ex.Message, null); }
             if (_cts.IsCancellationRequested) { if (outcome.Channel is not null) _ = outcome.Channel.DisposeAsync(); return false; }
@@ -437,5 +449,6 @@ public partial class SessionPage : ContentPage, IRemoteInputSink
         RestoreOrientation();
         try { _decoder?.Dispose(); } catch { }
         if (_channel is not null) _ = _channel.DisposeAsync();
+        try { _onClosed?.Invoke(); } catch { }
     }
 }

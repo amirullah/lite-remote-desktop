@@ -223,4 +223,7 @@ Built and maintained by **amirullah** — [@amirullah](https://github.com/amirul
 
 ## License
 
-Released under the [MIT License](LICENSE).
+Released under the [MIT License](LICENSE), **except** the Android/Mac app in
+[`src/RemoteDesktop.Maui`](src/RemoteDesktop.Maui), which is licensed under the
+[GNU GPL v2](src/RemoteDesktop.Maui/LICENSE) because it bundles an OpenVPN 2.x binary for the campus-VPN
+feature. Third-party notices (OpenVPN, OpenSSL/mbedTLS, LZ4, LZO) are shown in the app under "Lisensi".

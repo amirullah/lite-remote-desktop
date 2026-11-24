@@ -17,6 +17,15 @@ public sealed class SavedSession
     public bool RememberPassword { get; set; }
     public DateTime LastUsed { get; set; }
 
+    /// <summary>Optional campus VPN: sanitized .ovpn text (inline certs) and its username. The VPN
+    /// password lives in SecureStorage "vpnpw-&lt;Id&gt;".</summary>
+    public string? OvpnProfile { get; set; }
+    public string? OvpnName { get; set; }
+    public string VpnUser { get; set; } = "";
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasVpn => !string.IsNullOrWhiteSpace(OvpnProfile);
+
     public bool IsIdMode => Mode == "id";
 
     /// <summary>Connection target (host:port or formatted ID).</summary>
@@ -37,6 +46,7 @@ public sealed class SavedSession
             else parts.Add(string.IsNullOrWhiteSpace(Name) ? "Alamat IP" : Target);
             parts.Add(QualityProfiles.Label(Quality));
             if (RememberPassword) parts.Add("password tersimpan");
+            if (HasVpn) parts.Add("lewat VPN kampus");
             return string.Join(" · ", parts);
         }
     }
@@ -49,6 +59,7 @@ public static class SessionStore
 {
     private const string KSessions = "sessions-v1";
     private static string SecretKey(string id) => "pw-" + id;
+    private static string VpnSecretKey(string id) => "vpnpw-" + id;
 
     public static List<SavedSession> Load()
     {
@@ -80,6 +91,7 @@ public static class SessionStore
         list.RemoveAll(x => x.Id == id);
         SaveAll(list);
         try { SecureStorage.Default.Remove(SecretKey(id)); } catch { }
+        try { SecureStorage.Default.Remove(VpnSecretKey(id)); } catch { }
     }
 
     public static void Touch(string id)
@@ -104,6 +116,52 @@ public static class SessionStore
             else await SecureStorage.Default.SetAsync(SecretKey(id), password);
         }
         catch { }   // broken keystore: just don't remember
+    }
+
+    public static async Task<string?> GetVpnPasswordAsync(string id)
+    {
+        try { return await SecureStorage.Default.GetAsync(VpnSecretKey(id)); } catch { return null; }
+    }
+
+    public static async Task SetVpnPasswordAsync(string id, string? password)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(password)) SecureStorage.Default.Remove(VpnSecretKey(id));
+            else await SecureStorage.Default.SetAsync(VpnSecretKey(id), password);
+        }
+        catch { }
+    }
+
+    /// <summary>For a session with a campus VPN: the step SessionPage runs before every (re)connect —
+    /// brings the tunnel up (no-op when already up). null when the session has no VPN.</summary>
+    public static Func<Action<string>, CancellationToken, Task>? BuildPrepare(SavedSession s)
+    {
+        if (!s.HasVpn) return null;
+        var profile = s.OvpnProfile!;
+        var user = s.VpnUser ?? "";
+        var id = s.Id;
+        var target = s.IsIdMode ? "" : (s.Host ?? "").Trim();
+        return async (status, ct) =>
+        {
+#if ANDROID
+            if (RemoteDesktop.Maui.Vpn.CampusVpn.IsUp) { await RemoteDesktop.Maui.Vpn.CampusVpn.ConnectAsync(profile, user, await GetVpnPasswordAsync(id) ?? "", target, ct); return; }
+            status("Menyalakan VPN kampus…");
+            await RemoteDesktop.Maui.Vpn.CampusVpn.ConnectAsync(profile, user, await GetVpnPasswordAsync(id) ?? "", target, ct);
+            status("VPN kampus tersambung ✓ — menghubungkan ke host…");
+#else
+            await Task.CompletedTask;
+            throw new PlatformNotSupportedException("VPN kampus hanya tersedia di Android.");
+#endif
+        };
+    }
+
+    public static Action? BuildOnClosed(SavedSession s)
+    {
+#if ANDROID
+        if (s.HasVpn) return () => _ = RemoteDesktop.Maui.Vpn.CampusVpn.DisconnectAsync();
+#endif
+        return null;
     }
 
     /// <summary>One-time move of the old single-form settings (before 1.4.52) into a saved session.</summary>
@@ -177,5 +235,21 @@ public static class SessionStore
         if (colon > 0 && int.TryParse(text[(colon + 1)..], out var p) && p is > 0 and <= 65535)
             return (text[..colon], p);
         return (text, defaultPort);
+    }
+}
+
+/// <summary>One-time heads-up before the first campus-VPN connect.</summary>
+public static class VpnNotice
+{
+    private const string Key = "vpn-one-at-a-time-warned";
+
+    public static async Task WarnOnceAsync(Page page, SavedSession s)
+    {
+        if (!s.HasVpn || Preferences.Get(Key, false)) return;
+        Preferences.Set(Key, true);
+        await page.DisplayAlert("VPN kampus",
+            "Android hanya mengizinkan satu VPN aktif. Saat VPN kampus LiteRemote menyala, VPN lain " +
+            "(mis. Tailscale) akan dijeda dan perlu dinyalakan lagi setelah sesi selesai.\n\n" +
+            "Hanya LiteRemote yang lewat VPN kampus; aplikasi lain tetap memakai internet biasa.", "Mengerti");
     }
 }

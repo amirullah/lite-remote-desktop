@@ -28,6 +28,8 @@ public partial class SessionEditPage : ContentPage
         RememberCheck.IsChecked = _isNew || _session.RememberPassword;
         SetMode(_session.IsIdMode);
         SetQuality(_session.Quality);
+        VpnUserEntry.Text = _session.VpnUser;
+        UpdateVpnUi();
         if (!string.IsNullOrEmpty(hint)) { StatusLabel.TextColor = Color.FromArgb(hintIsError ? "#E5484D" : "#2F7CF6"); StatusLabel.Text = hint; }
     }
 
@@ -35,16 +37,68 @@ public partial class SessionEditPage : ContentPage
     {
         Id = s.Id, Name = s.Name, Mode = s.Mode, Host = s.Host, Port = s.Port, PartnerId = s.PartnerId,
         Relay = s.Relay, Quality = s.Quality, RememberPassword = s.RememberPassword, LastUsed = s.LastUsed,
+        OvpnProfile = s.OvpnProfile, OvpnName = s.OvpnName, VpnUser = s.VpnUser,
     };
 
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-        if (_loadedPassword || _isNew || !_session.RememberPassword) return;
+        if (_loadedPassword || _isNew) return;
         _loadedPassword = true;
-        if (string.IsNullOrEmpty(PasswordEntry.Text))
+        if (_session.HasVpn && string.IsNullOrEmpty(VpnPasswordEntry.Text))
+            VpnPasswordEntry.Text = await SessionStore.GetVpnPasswordAsync(_session.Id) ?? "";
+        if (_session.RememberPassword && string.IsNullOrEmpty(PasswordEntry.Text))
             PasswordEntry.Text = await SessionStore.GetPasswordAsync(_session.Id) ?? "";
     }
+
+    // ---- campus VPN ----
+
+    private void UpdateVpnUi()
+    {
+        VpnPanel.IsVisible = _session.HasVpn;
+        VpnImportBtn.Text = _session.HasVpn ? "Ganti .ovpn" : "Impor .ovpn";
+        VpnInfoLabel.Text = _session.HasVpn
+            ? "Profil: " + (string.IsNullOrWhiteSpace(_session.OvpnName) ? "VPN kampus" : _session.OvpnName)
+            : "Impor file .ovpn bila host hanya bisa dijangkau lewat VPN kampus.";
+    }
+
+    private async void VpnImport_Clicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            var file = await FilePicker.Default.PickAsync(new PickOptions { PickerTitle = "Pilih file .ovpn VPN kampus" });
+            if (file is null) return;
+            string text;
+            await using (var stream = await file.OpenReadAsync())
+            {
+                if (stream.CanSeek && stream.Length > OvpnProfile.MaxBytes) { ShowError("File .ovpn terlalu besar (maks 256 KB)."); return; }
+                using var reader = new StreamReader(stream);
+                text = await reader.ReadToEndAsync();
+            }
+            var err = OvpnProfile.Validate(text, out var clean);
+            if (err is not null) { ShowError(err); return; }
+            _session.OvpnProfile = clean;
+            _session.OvpnName = Path.GetFileNameWithoutExtension(file.FileName);
+            UpdateVpnUi();
+            StatusLabel.TextColor = Color.FromArgb("#2F7CF6");
+            StatusLabel.Text = OvpnProfile.NeedsUserPass(clean)
+                ? "Profil VPN diimpor. Isi username dan password VPN, lalu simpan."
+                : "Profil VPN diimpor. Ketuk Simpan.";
+        }
+        catch (Exception ex) { ShowError("Gagal membaca file .ovpn: " + ex.Message); }
+    }
+
+    private async void VpnRemove_Clicked(object? sender, EventArgs e)
+    {
+        if (!await DisplayAlert("Hapus profil VPN?", "Sesi ini akan tersambung tanpa VPN kampus.", "Hapus", "Batal")) return;
+        _session.OvpnProfile = null;
+        _session.OvpnName = null;
+        VpnUserEntry.Text = "";
+        VpnPasswordEntry.Text = "";
+        UpdateVpnUi();
+    }
+
+    private void VpnEye_Clicked(object? sender, EventArgs e) => VpnPasswordEntry.IsPassword = !VpnPasswordEntry.IsPassword;
 
     private void Back_Clicked(object? sender, EventArgs e) => _ = Navigation.PopAsync();
 
@@ -91,6 +145,7 @@ public partial class SessionEditPage : ContentPage
         _session.PartnerId = RelayProtocol.NormalizeId(IdEntry.Text ?? "");
         _session.Relay = (RelayEntry.Text ?? "").Trim();
         _session.Quality = _quality;
+        _session.VpnUser = _session.HasVpn ? (VpnUserEntry.Text ?? "").Trim() : "";
 
         if (_idMode)
         {
@@ -98,6 +153,9 @@ public partial class SessionEditPage : ContentPage
             if (SessionStore.SplitHostPort(_session.Relay, RelayProtocol.DefaultPort).host.Length == 0) return "Isi alamat server relay.";
         }
         else if (_session.Host.Length == 0) return "Isi alamat host.";
+        if (_session.HasVpn && OvpnProfile.NeedsUserPass(_session.OvpnProfile!) &&
+            (_session.VpnUser.Length == 0 || string.IsNullOrEmpty(VpnPasswordEntry.Text)))
+            return "Isi username dan password VPN kampus.";
         return null;
     }
 
@@ -105,6 +163,7 @@ public partial class SessionEditPage : ContentPage
     {
         _session.RememberPassword = RememberCheck.IsChecked && password.Length > 0;
         await SessionStore.SetPasswordAsync(_session.Id, _session.RememberPassword ? password : null);
+        await SessionStore.SetVpnPasswordAsync(_session.Id, _session.HasVpn ? VpnPasswordEntry.Text : null);
         SessionStore.Upsert(_session);
     }
 
@@ -129,7 +188,9 @@ public partial class SessionEditPage : ContentPage
         await PersistAsync(password);
         StatusLabel.Text = "";
         // Back from the session goes straight home, not to this form.
-        await Navigation.PushAsync(new SessionPage(connect, title, QualityProfiles.BuildSettings(_session.Quality)));
+        await VpnNotice.WarnOnceAsync(this, _session);
+        await Navigation.PushAsync(new SessionPage(connect, title, QualityProfiles.BuildSettings(_session.Quality),
+            SessionStore.BuildPrepare(_session), SessionStore.BuildOnClosed(_session)));
         Navigation.RemovePage(this);
     }
 }

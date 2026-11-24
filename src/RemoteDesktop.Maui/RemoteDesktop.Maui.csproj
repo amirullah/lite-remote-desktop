@@ -38,7 +38,7 @@
 		<!-- Versions -->
 		<!-- Follow the release version (build with -p:Version=x.y.z). Android only installs an update whose
 		     versionCode is >= the installed one, so derive it from the version: 1.4.50 -> 10450. -->
-		<Version Condition="'$(Version)' == ''">1.4.52</Version>
+		<Version Condition="'$(Version)' == ''">1.4.53</Version>
 		<ApplicationDisplayVersion>$(Version)</ApplicationDisplayVersion>
 		<ApplicationVersion>$([MSBuild]::Add($([MSBuild]::Add($([MSBuild]::Multiply($([System.Version]::Parse($(Version)).Major), 10000)), $([MSBuild]::Multiply($([System.Version]::Parse($(Version)).Minor), 100)))), $([System.Version]::Parse($(Version)).Build)))</ApplicationVersion>
 
@@ -72,6 +72,16 @@
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Maui.Controls.Compatibility" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="8.0.1" />
+	</ItemGroup>
+
+	<!-- Campus VPN engine: OpenVPN 2.6 (ics-openvpn fork) built by CI as libovpnexec.so. Optional — the app
+	     builds and runs without it (the VPN feature then reports a clear error). It is executed from
+	     nativeLibraryDir, so native libs must be extracted on install (extractNativeLibs / legacy packaging). -->
+	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+		<AndroidUseLegacyPackaging>true</AndroidUseLegacyPackaging>
+	</PropertyGroup>
+	<ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' And Exists('Platforms\Android\libs\arm64-v8a\libovpnexec.so')">
+		<AndroidNativeLibrary Include="Platforms\Android\libs\arm64-v8a\*.so" Abi="arm64-v8a" />
 	</ItemGroup>
 
 	<ItemGroup>

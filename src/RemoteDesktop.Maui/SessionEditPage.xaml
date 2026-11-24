@@ -106,6 +106,39 @@
                                TextColor="{AppThemeBinding Light=#0E1B33, Dark=#DCE6F7}"/>
                     </HorizontalStackLayout>
 
+                    <!-- optional campus VPN (.ovpn) -->
+                    <BoxView HeightRequest="1" Margin="0,10,0,4" Color="{AppThemeBinding Light=#D5DFEF, Dark=#22335A}"/>
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <VerticalStackLayout VerticalOptions="Center">
+                            <Label Text="VPN KAMPUS (OPSIONAL)" Style="{StaticResource FieldLabel}"/>
+                            <Label x:Name="VpnInfoLabel" FontSize="12" Margin="2,0,0,0"
+                                   TextColor="{AppThemeBinding Light=#5B6B86, Dark=#8FA3C4}"
+                                   Text="Impor file .ovpn bila host hanya bisa dijangkau lewat VPN kampus."/>
+                        </VerticalStackLayout>
+                        <Button x:Name="VpnImportBtn" Grid.Column="1" Text="Impor .ovpn" Clicked="VpnImport_Clicked"
+                                BackgroundColor="Transparent" TextColor="#2F7CF6" FontSize="13" FontAttributes="Bold"
+                                BorderColor="#2F7CF6" BorderWidth="1.2" CornerRadius="10" HeightRequest="38" Padding="12,0"
+                                VerticalOptions="Center"/>
+                    </Grid>
+                    <VerticalStackLayout x:Name="VpnPanel" Spacing="6" IsVisible="False">
+                        <Label Text="USERNAME VPN" Style="{StaticResource FieldLabel}"/>
+                        <Border Style="{StaticResource Field}">
+                            <Entry x:Name="VpnUserEntry" Placeholder="mis. NIM / NIP" Keyboard="Text"/>
+                        </Border>
+                        <Label Text="PASSWORD VPN" Style="{StaticResource FieldLabel}"/>
+                        <Border Style="{StaticResource Field}">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <Entry x:Name="VpnPasswordEntry" IsPassword="True" Placeholder="Password akun VPN kampus"/>
+                                <Button Grid.Column="1" Text="&#x1F441;" BackgroundColor="Transparent" Padding="8,0"
+                                        TextColor="{AppThemeBinding Light=#5B6B86, Dark=#8FA3C4}" Clicked="VpnEye_Clicked"/>
+                            </Grid>
+                        </Border>
+                        <Label FontSize="11" Margin="2,0" TextColor="{AppThemeBinding Light=#5B6B86, Dark=#8FA3C4}"
+                               Text="Password VPN disimpan aman di HP ini. Hanya LiteRemote yang lewat VPN; aplikasi lain tetap memakai internet biasa."/>
+                        <Button Text="Hapus profil VPN" Clicked="VpnRemove_Clicked" HorizontalOptions="Start"
+                                BackgroundColor="Transparent" TextColor="#E5484D" FontSize="13" Padding="2,0" HeightRequest="36"/>
+                    </VerticalStackLayout>
+
                     <Button x:Name="SaveConnectButton" Text="Simpan &amp; sambungkan" Clicked="SaveConnect_Clicked"
                             BackgroundColor="#2F7CF6" TextColor="White" FontSize="16" FontAttributes="Bold"
                             CornerRadius="12" HeightRequest="50" Margin="0,8,0,0"/>

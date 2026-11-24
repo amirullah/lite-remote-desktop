@@ -104,6 +104,8 @@ public partial class MainPage : ContentPage
         Refresh();
     }
 
+    private async void License_Tapped(object? sender, TappedEventArgs e) => await Navigation.PushAsync(new LicensePage());
+
     private bool _connecting;
 
     private async void Session_Tapped(object? sender, TappedEventArgs e)
@@ -125,7 +127,9 @@ public partial class MainPage : ContentPage
                 return;
             }
             SessionStore.Touch(s.Id);
-            await Navigation.PushAsync(new SessionPage(connect, title, QualityProfiles.BuildSettings(s.Quality)));
+            await VpnNotice.WarnOnceAsync(this, s);
+            await Navigation.PushAsync(new SessionPage(connect, title, QualityProfiles.BuildSettings(s.Quality),
+                SessionStore.BuildPrepare(s), SessionStore.BuildOnClosed(s)));
         }
         finally { _connecting = false; }
     }

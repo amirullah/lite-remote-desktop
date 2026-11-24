@@ -1,6 +1,6 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-	<application android:allowBackup="true" android:icon="@mipmap/appicon" android:roundIcon="@mipmap/appicon_round" android:supportsRtl="true">
+	<application android:allowBackup="true" android:icon="@mipmap/appicon" android:roundIcon="@mipmap/appicon_round" android:supportsRtl="true" android:extractNativeLibs="true">
 		<!-- Hands the downloaded update APK to the system installer (in-app update). -->
 		<provider android:name="androidx.core.content.FileProvider"
 		          android:authorities="com.literemote.viewer.fileprovider"
@@ -13,4 +13,9 @@
 	<uses-permission android:name="android.permission.INTERNET" />
 	<!-- Lets the app open the system installer for its own update (user still confirms). -->
 	<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+	<!-- Campus VPN (LiteVpnService: VpnService + bundled OpenVPN engine). The <service> element itself is
+	     generated from the [Service]/[IntentFilter] attributes on LiteVpnService. -->
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>
