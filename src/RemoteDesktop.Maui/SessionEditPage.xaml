@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="RemoteDesktop.Maui.SessionEditPage"
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="{AppThemeBinding Light=#F2F6FD, Dark=#0A1220}">
+    <ContentPage.Resources>
+        <Style x:Key="FieldLabel" TargetType="Label">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontAttributes" Value="Bold"/>
+            <Setter Property="TextColor" Value="{AppThemeBinding Light=#5B6B86, Dark=#8FA3C4}"/>
+            <Setter Property="Margin" Value="2,6,0,2"/>
+        </Style>
+        <Style x:Key="Field" TargetType="Border">
+            <Setter Property="StrokeShape" Value="RoundRectangle 10"/>
+            <Setter Property="Stroke" Value="{AppThemeBinding Light=#D5DFEF, Dark=#22335A}"/>
+            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#EEF3FB, Dark=#0D1628}"/>
+            <Setter Property="Padding" Value="10,0"/>
+        </Style>
+        <Style x:Key="Seg" TargetType="Button">
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="HeightRequest" Value="40"/>
+            <Setter Property="BackgroundColor" Value="Transparent"/>
+            <Setter Property="TextColor" Value="{AppThemeBinding Light=#5B6B86, Dark=#8FA3C4}"/>
+        </Style>
+    </ContentPage.Resources>
+
+    <ScrollView>
+        <VerticalStackLayout Padding="22,28,22,24" Spacing="6" MaximumWidthRequest="520">
+            <!-- header -->
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" Margin="0,0,0,12">
+                <Button Text="‹ Kembali" BackgroundColor="Transparent" TextColor="#2F7CF6" FontSize="15"
+                        Padding="0" Clicked="Back_Clicked"/>
+                <Label x:Name="HeaderLabel" Grid.Column="1" Text="Sesi baru" FontSize="22" FontAttributes="Bold"
+                       VerticalOptions="Center" HorizontalOptions="End"
+                       TextColor="{AppThemeBinding Light=#0E1B33, Dark=White}"/>
+            </Grid>
+
+            <Border StrokeShape="RoundRectangle 18" Padding="18" StrokeThickness="1"
+                    Stroke="{AppThemeBinding Light=#D5DFEF, Dark=#22335A}"
+                    BackgroundColor="{AppThemeBinding Light=White, Dark=#111C30}">
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="NAMA SESI (OPSIONAL)" Style="{StaticResource FieldLabel}"/>
+                    <Border Style="{StaticResource Field}">
+                        <Entry x:Name="NameEntry" Placeholder="mis. PC Kantor" Keyboard="Text"/>
+                    </Border>
+
+                    <Label Text="JENIS KONEKSI" Style="{StaticResource FieldLabel}"/>
+                    <Border Style="{StaticResource Field}" Padding="4">
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="4">
+                            <Button x:Name="ModeAddrBtn" Text="Alamat IP" Style="{StaticResource Seg}" Clicked="ModeAddr_Clicked"/>
+                            <Button x:Name="ModeIdBtn" Grid.Column="1" Text="ID (relay)" Style="{StaticResource Seg}" Clicked="ModeId_Clicked"/>
+                        </Grid>
+                    </Border>
+
+                    <VerticalStackLayout x:Name="AddrPanel" Spacing="6">
+                        <Grid ColumnDefinitions="*,100" ColumnSpacing="10">
+                            <VerticalStackLayout>
+                                <Label Text="ALAMAT HOST" Style="{StaticResource FieldLabel}"/>
+                                <Border Style="{StaticResource Field}">
+                                    <Entry x:Name="HostEntry" Placeholder="mis. 100.89.119.76" Keyboard="Url"/>
+                                </Border>
+                            </VerticalStackLayout>
+                            <VerticalStackLayout Grid.Column="1">
+                                <Label Text="PORT" Style="{StaticResource FieldLabel}"/>
+                                <Border Style="{StaticResource Field}">
+                                    <Entry x:Name="PortEntry" Text="7443" Keyboard="Numeric"/>
+                                </Border>
+                            </VerticalStackLayout>
+                        </Grid>
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout x:Name="IdPanel" Spacing="6" IsVisible="False">
+                        <Label Text="ID MITRA" Style="{StaticResource FieldLabel}"/>
+                        <Border Style="{StaticResource Field}">
+                            <Entry x:Name="IdEntry" Placeholder="9 digit, mis. 123 456 789" Keyboard="Numeric"/>
+                        </Border>
+                        <Label Text="SERVER RELAY" Style="{StaticResource FieldLabel}"/>
+                        <Border Style="{StaticResource Field}">
+                            <Entry x:Name="RelayEntry" Placeholder="host:port" Keyboard="Url"/>
+                        </Border>
+                    </VerticalStackLayout>
+
+                    <Label Text="PASSWORD AKSES HOST" Style="{StaticResource FieldLabel}"/>
+                    <Border Style="{StaticResource Field}">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <Entry x:Name="PasswordEntry" IsPassword="True" Placeholder="Password dari tray LiteRemote Host"/>
+                            <Button Grid.Column="1" Text="👁" BackgroundColor="Transparent" Padding="8,0"
+                                    TextColor="{AppThemeBinding Light=#5B6B86, Dark=#8FA3C4}" Clicked="Eye_Clicked"/>
+                        </Grid>
+                    </Border>
+
+                    <Label Text="KUALITAS" Style="{StaticResource FieldLabel}"/>
+                    <Border Style="{StaticResource Field}" Padding="4">
+                        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="4">
+                            <Button x:Name="QSaverBtn" Text="Hemat data" Style="{StaticResource Seg}" Clicked="Quality_Clicked" CommandParameter="saver"/>
+                            <Button x:Name="QBalancedBtn" Grid.Column="1" Text="Seimbang" Style="{StaticResource Seg}" Clicked="Quality_Clicked" CommandParameter="balanced"/>
+                            <Button x:Name="QSharpBtn" Grid.Column="2" Text="Tajam" Style="{StaticResource Seg}" Clicked="Quality_Clicked" CommandParameter="sharp"/>
+                        </Grid>
+                    </Border>
+
+                    <HorizontalStackLayout Spacing="4">
+                        <CheckBox x:Name="RememberCheck" Color="#2F7CF6"/>
+                        <Label Text="Ingat password di HP ini (tersimpan aman)" VerticalOptions="Center" FontSize="13"
+                               TextColor="{AppThemeBinding Light=#0E1B33, Dark=#DCE6F7}"/>
+                    </HorizontalStackLayout>
+
+                    <Button x:Name="SaveConnectButton" Text="Simpan &amp; sambungkan" Clicked="SaveConnect_Clicked"
+                            BackgroundColor="#2F7CF6" TextColor="White" FontSize="16" FontAttributes="Bold"
+                            CornerRadius="12" HeightRequest="50" Margin="0,8,0,0"/>
+                    <Button Text="Simpan saja" Clicked="Save_Clicked"
+                            BackgroundColor="Transparent" TextColor="#2F7CF6" FontSize="15" FontAttributes="Bold"
+                            BorderColor="#2F7CF6" BorderWidth="1.5" CornerRadius="12" HeightRequest="46"/>
+                    <Label x:Name="StatusLabel" HorizontalOptions="Center" TextColor="#E5484D" FontSize="13"/>
+                </VerticalStackLayout>
+            </Border>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

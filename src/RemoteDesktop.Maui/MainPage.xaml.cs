@@ -1,68 +1,15 @@
 using RemoteDesktop.Maui.Services;
-using RemoteDesktop.Shared.Models;
-using RemoteDesktop.Shared.Relay;
 
 namespace RemoteDesktop.Maui;
 
+/// <summary>Home: list of saved sessions (tap = connect, ✎ = edit, 🗑 = delete) + "+ Sesi baru".</summary>
 public partial class MainPage : ContentPage
 {
-    // Non-secret fields live in Preferences; the password only in SecureStorage (Android Keystore).
-    private const string KMode = "mode", KHost = "host", KPort = "port", KId = "id", KRelay = "relay", KRemember = "remember";
-    private const string SecretKey = "host-password";
-
-    private bool _idMode;
+    private bool _migrated;
 
     public MainPage()
     {
         InitializeComponent();
-        HostEntry.Text = Preferences.Get(KHost, "");
-        PortEntry.Text = Preferences.Get(KPort, "7443");
-        IdEntry.Text = Preferences.Get(KId, "");
-        RelayEntry.Text = Preferences.Get(KRelay, "");
-        RememberCheck.IsChecked = Preferences.Get(KRemember, false);
-        SetMode(Preferences.Get(KMode, "addr") == "id");
-        SetQuality(Preferences.Get(KQuality, "balanced"));
-    }
-
-    // ---- streaming profile (what the phone asks the host for) ----
-    private const string KQuality = "quality";
-    private string _quality = "balanced";
-
-    private void Quality_Clicked(object? sender, EventArgs e) => SetQuality((sender as Button)?.CommandParameter?.ToString() ?? "balanced");
-
-    private void SetQuality(string q)
-    {
-        _quality = q is "saver" or "sharp" ? q : "balanced";
-        SegStyle(QSaverBtn, _quality == "saver");
-        SegStyle(QBalancedBtn, _quality == "balanced");
-        SegStyle(QSharpBtn, _quality == "sharp");
-    }
-
-    /// <summary>
-    /// A phone doesn't need desktop defaults (up to 144 fps native): capping fps is the biggest win for
-    /// bandwidth, decode load and battery, while native resolution keeps text crisp when zoomed.
-    /// </summary>
-    private SessionSettings BuildSettings() => _quality switch
-    {
-        "saver" => new SessionSettings
-        {
-            PreferredCodec = VideoCodec.H264, FrameRateMode = FrameRateMode.Auto, MaxFps = 24, TargetFps = 24,
-            ResolutionMode = ResolutionMode.Scaled, ScaledWidth = 1280, ScaledHeight = 720, Quality = 50,
-        },
-        "sharp" => new SessionSettings
-        {
-            PreferredCodec = VideoCodec.H264, FrameRateMode = FrameRateMode.Auto, MaxFps = 60, TargetFps = 60, Quality = 80,
-        },
-        _ => new SessionSettings
-        {
-            PreferredCodec = VideoCodec.H264, FrameRateMode = FrameRateMode.Auto, MaxFps = 30, TargetFps = 30, Quality = 65,
-        },
-    };
-
-    private static void SegStyle(Button b, bool active)
-    {
-        b.BackgroundColor = active ? Color.FromArgb("#2F7CF6") : Colors.Transparent;
-        b.TextColor = active ? Colors.White : Color.FromArgb("#8FA3C4");
     }
 
     // ---- in-app update ----
@@ -121,83 +68,65 @@ public partial class MainPage : ContentPage
             VersionLabel.Text = $"LiteRemote v{AppUpdateService.CurrentVersion.ToString(3)}";
             _ = CheckUpdateAsync(manual: false);
         }
-        if (RememberCheck.IsChecked && string.IsNullOrEmpty(PasswordEntry.Text))
+        if (!_migrated)
         {
-            try { PasswordEntry.Text = await SecureStorage.Default.GetAsync(SecretKey) ?? ""; } catch { }
+            _migrated = true;
+            await SessionStore.MigrateLegacyAsync();
         }
+        Refresh();
     }
 
-    private void ModeAddr_Clicked(object? sender, EventArgs e) => SetMode(false);
-    private void ModeId_Clicked(object? sender, EventArgs e) => SetMode(true);
-
-    private void SetMode(bool id)
+    private void Refresh()
     {
-        _idMode = id;
-        AddrPanel.IsVisible = !id;
-        IdPanel.IsVisible = id;
-        SegStyle(ModeAddrBtn, !id);
-        SegStyle(ModeIdBtn, id);
-        StatusLabel.Text = "";
+        var list = SessionStore.Load();
+        BindableLayout.SetItemsSource(SessionList, list);
+        SessionList.IsVisible = list.Count > 0;
+        EmptyState.IsVisible = list.Count == 0;
+        StatusLabel.IsVisible = false;
     }
 
-    private void Eye_Clicked(object? sender, EventArgs e) => PasswordEntry.IsPassword = !PasswordEntry.IsPassword;
+    private async void NewSession_Clicked(object? sender, EventArgs e) =>
+        await Navigation.PushAsync(new SessionEditPage(null));
 
-    private async void OnConnectClicked(object sender, EventArgs e)
+    private static SavedSession? SessionOf(object? sender) => (sender as BindableObject)?.BindingContext as SavedSession;
+
+    private async void Edit_Clicked(object? sender, EventArgs e)
     {
-        var password = PasswordEntry.Text ?? "";
-        if (password.Length == 0) { StatusLabel.Text = "Isi password akses host."; return; }
-
-        Func<CancellationToken, Task<ConnectOutcome>> connect;
-        string title;
-
-        if (_idMode)
-        {
-            var id = RelayProtocol.NormalizeId(IdEntry.Text ?? "");
-            if (id.Length != 9) { StatusLabel.Text = "ID harus 9 digit."; return; }
-            var (relayHost, relayPort) = SplitHostPort(RelayEntry.Text, RelayProtocol.DefaultPort);
-            if (relayHost.Length == 0) { StatusLabel.Text = "Isi alamat server relay."; return; }
-            connect = ct => ViewerConnection.ConnectViaRelayAsync(relayHost, relayPort, id, password, ct);
-            title = RelayProtocol.FormatId(id);
-        }
-        else
-        {
-            var host = (HostEntry.Text ?? "").Trim();
-            if (host.Length == 0) { StatusLabel.Text = "Isi alamat host."; return; }
-            if (!int.TryParse(PortEntry.Text, out var port) || port is < 1 or > 65535) port = 7443;
-            PortEntry.Text = port.ToString();
-            connect = ct => ViewerConnection.ConnectAsync(host, port, password, ct);
-            title = $"{host}:{port}";
-        }
-
-        Remember(password);
-        Preferences.Set(KQuality, _quality);
-        StatusLabel.Text = "";
-        await Navigation.PushAsync(new SessionPage(connect, title, BuildSettings()));
+        if (SessionOf(sender) is { } s) await Navigation.PushAsync(new SessionEditPage(s));
     }
 
-    private void Remember(string password)
+    private async void Delete_Clicked(object? sender, EventArgs e)
     {
-        Preferences.Set(KMode, _idMode ? "id" : "addr");
-        Preferences.Set(KHost, (HostEntry.Text ?? "").Trim());
-        Preferences.Set(KPort, (PortEntry.Text ?? "7443").Trim());
-        Preferences.Set(KId, (IdEntry.Text ?? "").Trim());
-        Preferences.Set(KRelay, (RelayEntry.Text ?? "").Trim());
-        Preferences.Set(KRemember, RememberCheck.IsChecked);
+        if (SessionOf(sender) is not { } s) return;
+        bool ok = await DisplayAlert("Hapus sesi?", $"Sesi \"{s.DisplayName}\" dan password tersimpannya akan dihapus dari HP ini.", "Hapus", "Batal");
+        if (!ok) return;
+        SessionStore.Delete(s.Id);
+        Refresh();
+    }
+
+    private bool _connecting;
+
+    private async void Session_Tapped(object? sender, TappedEventArgs e)
+    {
+        if (SessionOf(sender) is not { } s || _connecting) return;
+        _connecting = true;
         try
         {
-            if (RememberCheck.IsChecked) _ = SecureStorage.Default.SetAsync(SecretKey, password);
-            else SecureStorage.Default.Remove(SecretKey);
+            var password = s.RememberPassword ? await SessionStore.GetPasswordAsync(s.Id) ?? "" : "";
+            if (password.Length == 0)
+            {
+                await Navigation.PushAsync(new SessionEditPage(s, "Masukkan password, lalu ketuk \"Simpan & sambungkan\"."));
+                return;
+            }
+            var err = SessionStore.TryBuildConnect(s, password, out var connect, out var title);
+            if (err is not null || connect is null)
+            {
+                await Navigation.PushAsync(new SessionEditPage(s, err, hintIsError: true));
+                return;
+            }
+            SessionStore.Touch(s.Id);
+            await Navigation.PushAsync(new SessionPage(connect, title, QualityProfiles.BuildSettings(s.Quality)));
         }
-        catch { }   // SecureStorage can fail on devices with a broken keystore — just don't remember
-    }
-
-    private static (string host, int port) SplitHostPort(string? value, int defaultPort)
-    {
-        var text = (value ?? "").Trim();
-        if (text.Length == 0) return ("", defaultPort);
-        int colon = text.LastIndexOf(':');
-        if (colon > 0 && int.TryParse(text[(colon + 1)..], out var p) && p is > 0 and <= 65535)
-            return (text[..colon], p);
-        return (text, defaultPort);
+        finally { _connecting = false; }
     }
 }

@@ -15,8 +15,8 @@
     <RootNamespace>RemoteDesktop.Client</RootNamespace>
     <ApplicationIcon>..\..\assets\literemote.ico</ApplicationIcon>
     <!-- Product version shown in Settings → About. build-installer.ps1 overrides this with -p:Version
-         so the assembly and the installer version always match; this is the fallback for dev builds. -->
-    <Version>1.4.51</Version>
+         so the assembly and the installer version always match; the dev-build fallback lives in
+         ..\..\Directory.Build.props (single version source for all projects). -->
   </PropertyGroup>
 
   <ItemGroup>

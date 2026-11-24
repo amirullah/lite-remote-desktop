@@ -64,16 +64,20 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
   ValueName: "LiteRemoteHost"; ValueData: """{app}\host\{#HostExe}"""; Flags: uninsdeletevalue; Tasks: hostautostart
 
 [Run]
-; Optional firewall rule for the host listener.
-Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""LiteRemote Host"" dir=in action=allow protocol=TCP localport=7443"; \
-  Flags: runhidden; Tasks: hostfirewall
+; Optional firewall rule for the host listener. Always delete every existing rule with this name
+; first (netsh deletes ALL rules matching the name), so reinstall/update never piles up duplicates;
+; then add exactly one if the task is selected.
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""LiteRemote Host"""; \
+  Flags: runhidden waituntilterminated; StatusMsg: "Configuring Windows Firewall..."
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""LiteRemote Host"" dir=in action=allow protocol=TCP localport=7443"; \
+  Flags: runhidden waituntilterminated; Tasks: hostfirewall
 ; Offer to launch the viewer after install.
 Filename: "{app}\client\{#ClientExe}"; Description: "Launch LiteRemote viewer"; Flags: nowait postinstall skipifsilent
 ; In-app update (/UPDATE=1, run silently by the viewer): reopen the viewer as the signed-in user, not elevated.
 Filename: "{app}\client\{#ClientExe}"; Flags: nowait runasoriginaluser; Check: IsInAppUpdate
 
 [UninstallRun]
-Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""LiteRemote Host"""; Flags: runhidden; RunOnceId: "DelFirewallRule"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""LiteRemote Host"""; Flags: runhidden waituntilterminated; RunOnceId: "DelFirewallRule"
 ; Remove the SYSTEM login-screen task, otherwise it keeps firing at boot against a deleted exe
 ; and a later reinstall's tray host would step aside for it.
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN LiteRemoteLogin /F"; Flags: runhidden; RunOnceId: "DelLoginTask"
