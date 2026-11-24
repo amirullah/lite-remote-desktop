@@ -66,18 +66,120 @@ public partial class SessionPage : ContentPage, IRemoteInputSink
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-        if (_channel is not null) return;
+        if (_channel is not null || _connecting) return;
+        await ConnectAsync();
+    }
 
-        ShowStatus("Menghubungkan…");
-        var outcome = await _connect(_cts.Token);
-        if (!outcome.Ok || outcome.Channel is null)
+    // ---------------- connect / reconnect ----------------
+
+    private const int MaxAutoRetries = 5;
+    private bool _connecting;
+    private bool _hadSession;    // a connection succeeded at least once on this page
+    private int _retry;          // consecutive failed/dropped attempts since the last good session
+    private int _generation;     // bumps on every (re)connect so a stale session's "ended" is ignored
+
+    /// <summary>Open a fresh connection (the surface is reused) and start streaming on it.</summary>
+    private async Task<bool> ConnectAsync()
+    {
+        if (_connecting || _cts.IsCancellationRequested) return false;
+        _connecting = true;
+        ReconnectBtn.IsVisible = false;
+        ShowStatus(_retry == 0 ? "Menghubungkan…" : $"Menyambung ulang… ({_retry}/{MaxAutoRetries})");
+        try
         {
-            ShowStatus(outcome.Message);
+            ConnectOutcome outcome;
+            try { outcome = await _connect(_cts.Token); }
+            catch (OperationCanceledException) { return false; }
+            catch (Exception ex) { outcome = new ConnectOutcome(null, false, ex.Message, null); }
+            if (_cts.IsCancellationRequested) { if (outcome.Channel is not null) _ = outcome.Channel.DisposeAsync(); return false; }
+
+            if (!outcome.Ok || outcome.Channel is null)
+            {
+                if (outcome.Channel is not null) _ = outcome.Channel.DisposeAsync();
+                // Never auto-retry the very first connect: a wrong password or a changed host key would
+                // only be hammered. Auto-retry is for a session that was live and then dropped.
+                if (!_hadSession) { ShowStatus(outcome.Message); ReconnectBtn.IsVisible = true; return false; }
+                OnLinkLost(outcome.Message);
+                return false;
+            }
+            _hadSession = true;
+            _channel = outcome.Channel;
+            ShowStatus("Terautentikasi ✓ — memulai video…");
+            TryStart();
+            return true;
+        }
+        finally { _connecting = false; }
+    }
+
+    /// <summary>Tear down the dead session and retry with back-off; after the last try, offer the button.</summary>
+    private void OnLinkLost(string reason)
+    {
+        if (_cts.IsCancellationRequested) return;
+        TearDownSession();
+        _retry++;
+        if (_retry > MaxAutoRetries)
+        {
+            ShowStatus($"Koneksi terputus: {reason}");
+            ReconnectBtn.IsVisible = true;
             return;
         }
-        _channel = outcome.Channel;
-        ShowStatus("Terautentikasi ✓ — memulai video…");
-        TryStart();
+        int delayS = Math.Min(1 << (_retry - 1), 8);   // 1, 2, 4, 8, 8 s
+        ShowStatus($"Koneksi terputus — menyambung ulang dalam {delayS} dtk… ({_retry}/{MaxAutoRetries})");
+        ReconnectBtn.IsVisible = true;                  // user may retry right away
+        int gen = _generation;
+        Dispatcher.DispatchDelayed(TimeSpan.FromSeconds(delayS), () =>
+        {
+            if (gen == _generation && _channel is null && !_connecting) _ = ConnectAsync();
+        });
+    }
+
+    private void TearDownSession()
+    {
+        _generation++;
+        _session = null;
+        _started = false;
+        _gestures.Cancel();
+        try { _decoder?.Dispose(); } catch { }
+        _decoder = null;
+        if (_channel is not null) { _ = _channel.DisposeAsync(); _channel = null; }
+        _lastMoveX = _lastMoveY = ushort.MaxValue;
+    }
+
+    private async void Reconnect_Clicked(object? sender, EventArgs e)
+    {
+        if (_connecting) return;
+        TearDownSession();   // also invalidates any pending auto-retry
+        _retry = 0;
+        await ConnectAsync();
+    }
+
+    // ---------------- orientation ----------------
+
+    private bool _orientationLocked;
+
+    /// <summary>Lock the session to the other orientation (landscape ↔ portrait) without needing the
+    /// phone's system auto-rotate; restored when leaving the session.</summary>
+    private void Rotate_Clicked(object? sender, EventArgs e)
+    {
+#if ANDROID
+        var activity = Platform.CurrentActivity;
+        if (activity is null) return;
+        bool nowLandscape = DeviceDisplay.MainDisplayInfo.Width > DeviceDisplay.MainDisplayInfo.Height;
+        activity.RequestedOrientation = nowLandscape
+            ? global::Android.Content.PM.ScreenOrientation.SensorPortrait
+            : global::Android.Content.PM.ScreenOrientation.SensorLandscape;
+        _orientationLocked = true;
+#endif
+    }
+
+    private void RestoreOrientation()
+    {
+#if ANDROID
+        if (!_orientationLocked) return;
+        _orientationLocked = false;
+        var activity = Platform.CurrentActivity;
+        if (activity is not null) activity.RequestedOrientation = global::Android.Content.PM.ScreenOrientation.Unspecified;
+#endif
     }
 
     private void OnSurfaceReady(object surface)
@@ -107,32 +209,36 @@ public partial class SessionPage : ContentPage, IRemoteInputSink
         // After a dropped/garbled frame the decoder resyncs on a fresh keyframe — let it ask the host.
         if (_decoder is AndroidVideoDecoder ad) ad.KeyFrameNeeded = () => _ = _session?.RequestKeyFrameAsync();
 #endif
-        _session = new ViewerSession(_channel, _decoder);
-        _session.VideoConfigured += (w, h) => Dispatcher.Dispatch(() =>
+        var session = new ViewerSession(_channel, _decoder);
+        _session = session;
+        int gen = _generation;
+        session.VideoConfigured += (w, h) => Dispatcher.Dispatch(() =>
         {
+            if (gen != _generation) return;
+            _retry = 0;   // picture is flowing again: the next drop gets the full retry budget
+            ReconnectBtn.IsVisible = false;
             _viewport.SetRemote(w, h);
             _viewport.SetView(Screen.PixelWidth, Screen.PixelHeight);
             ApplyViewport();
             ShowStatus($"{w}×{h}");
             // The status is only a hint once the picture is live — get it out of the way.
-            Dispatcher.DispatchDelayed(TimeSpan.FromSeconds(2), () => { if (_session is not null) StatusLabel.IsVisible = false; });
+            Dispatcher.DispatchDelayed(TimeSpan.FromSeconds(2), () => { if (gen == _generation && _session is not null) StatusLabel.IsVisible = false; });
         });
 
         _ = Task.Run(async () =>
         {
+            string reason;
             try
             {
-                await _session.RunAsync(_settings, _cts.Token);
-                // RunAsync returns normally when the host closes or the link drops: say so instead of
-                // leaving a frozen frame with no explanation.
-                if (!_cts.IsCancellationRequested)
-                    Dispatcher.Dispatch(() => { _session = null; ShowStatus("Sesi berakhir (host terputus)"); });
+                await session.RunAsync(_settings, _cts.Token);
+                // RunAsync returns normally when the host closes or the link drops (e.g. the phone
+                // switched Wi-Fi ↔ mobile data): reconnect instead of leaving a frozen frame.
+                reason = "host terputus";
             }
-            catch (OperationCanceledException) { }
-            catch (Exception ex)
-            {
-                Dispatcher.Dispatch(() => { _session = null; ShowStatus("Sesi berakhir: " + ex.Message); });
-            }
+            catch (OperationCanceledException) { return; }
+            catch (Exception ex) { reason = ex.Message; }
+            if (_cts.IsCancellationRequested) return;
+            Dispatcher.Dispatch(() => { if (gen == _generation) OnLinkLost(reason); });
         });
     }
 
@@ -327,6 +433,8 @@ public partial class SessionPage : ContentPage, IRemoteInputSink
         base.OnDisappearing();
         _gestures.Cancel();
         _cts.Cancel();
+        _generation++;          // cancels any pending auto-reconnect
+        RestoreOrientation();
         try { _decoder?.Dispose(); } catch { }
         if (_channel is not null) _ = _channel.DisposeAsync();
     }
