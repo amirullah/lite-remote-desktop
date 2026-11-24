@@ -27,7 +27,7 @@ BLD="$WORK/build-$ABI"
 cmake -S "$CPP" -B "$BLD" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI="$ABI" -DANDROID_PLATFORM="android-$API" \
-  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="$BLD/build/intermediates/cmake/skeletonRelease/obj/$ABI"
 cmake --build "$BLD" --target libovpnexec.so -j"$(nproc)"
 BIN="$(find "$BLD" -type f -name libovpnexec.so | head -1)"
