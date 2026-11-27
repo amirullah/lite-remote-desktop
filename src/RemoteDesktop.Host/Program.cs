@@ -140,7 +140,7 @@ internal sealed class TrayContext : ApplicationContext
     private bool _updateNoticeShown;
     private string? _notifiedVersion;
 
-    private async Task CheckForUpdateAsync()
+    private async Task CheckForUpdateAsync(bool manual = false)
     {
         try
         {
@@ -157,14 +157,57 @@ internal sealed class TrayContext : ApplicationContext
             latest = new Version(latest.Major, latest.Minor, Math.Max(0, latest.Build));
             var a = typeof(TrayContext).Assembly.GetName().Version ?? new Version(0, 0, 0);
             var current = new Version(a.Major, a.Minor, Math.Max(0, a.Build));
-            if (latest <= current || latest.ToString(3) == _notifiedVersion) return;
+            if (latest <= current)
+            {
+                if (manual) MessageBox.Show($"LiteRemote sudah versi terbaru (v{current.ToString(3)}).", "LiteRemote Host", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (!manual && latest.ToString(3) == _notifiedVersion) return;
             _notifiedVersion = latest.ToString(3);
             _updateNoticeShown = true;
             _tray.Text = $"LiteRemote Host — pembaruan v{_notifiedVersion} tersedia";
+            if (manual)
+            {
+                if (MessageBox.Show($"Versi v{_notifiedVersion} tersedia (terpasang: v{current.ToString(3)}).\n\nPerbarui sekarang?",
+                        "LiteRemote Host", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                    OpenViewerForUpdate();
+                return;
+            }
             _tray.ShowBalloonTip(10000, "Pembaruan LiteRemote tersedia",
                 $"Versi v{_notifiedVersion} sudah rilis (terpasang: v{current.ToString(3)}). Klik untuk memperbarui.", ToolTipIcon.Info);
         }
-        catch (Exception ex) { _log.LogDebug("Update check failed: {Msg}", ex.Message); }   // offline: stay quiet
+        catch (Exception ex)
+        {
+            _log.LogDebug("Update check failed: {Msg}", ex.Message);   // offline: stay quiet unless asked
+            if (manual) MessageBox.Show("Gagal memeriksa pembaruan: " + ex.Message, "LiteRemote Host", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    // ---------------- autostart (HKCU Run — same value the installer's "hostautostart" option writes) ----------------
+
+    private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+
+    private static bool IsAutostartEnabled()
+    {
+        try { using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunKey); return k?.GetValue("LiteRemoteHost") is string; }
+        catch { return false; }
+    }
+
+    private void ToggleAutostart()
+    {
+        try
+        {
+            using var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(RunKey);
+            if (IsAutostartEnabled()) k.DeleteValue("LiteRemoteHost", false);
+            else k.SetValue("LiteRemoteHost", "\"" + Environment.ProcessPath + "\"");
+            _tray.ShowBalloonTip(2500, "LiteRemote Host", IsAutostartEnabled()
+                ? "Host akan berjalan otomatis setiap Anda masuk ke Windows."
+                : "Host tidak lagi berjalan otomatis saat Windows mulai.", ToolTipIcon.Info);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Gagal mengubah pengaturan startup: " + ex.Message, "LiteRemote Host", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     private void OpenViewerForUpdate()
@@ -198,18 +241,25 @@ internal sealed class TrayContext : ApplicationContext
     private ContextMenuStrip BuildMenu()
     {
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Show status / ID / fingerprint", null, (_, _) => ShowStatus());
-        menu.Items.Add("Set access password…", null, (_, _) => SetPassword());
-        menu.Items.Add("Set up ID access (relay)…", null, (_, _) => ConfigureRelay());
-        menu.Items.Add("Configure Google login…", null, (_, _) => ConfigureGoogle());
+        var av = typeof(TrayContext).Assembly.GetName().Version;
+        menu.Items.Add(new ToolStripMenuItem($"LiteRemote Host v{av?.Major}.{av?.Minor}.{Math.Max(0, av?.Build ?? 0)}") { Enabled = false });
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Status / ID / sidik jari", null, (_, _) => ShowStatus());
+        menu.Items.Add("Atur password akses…", null, (_, _) => SetPassword());
+        menu.Items.Add("Atur akses ID (relay)…", null, (_, _) => ConfigureRelay());
+        menu.Items.Add("Atur login Google…", null, (_, _) => ConfigureGoogle());
+        menu.Items.Add(new ToolStripSeparator());
+        var autostart = new ToolStripMenuItem("Jalankan otomatis saat Windows mulai", null, (_, _) => ToggleAutostart());
+        menu.Items.Add(autostart);
+        menu.Items.Add("Periksa pembaruan sekarang", null, async (_, _) => await CheckForUpdateAsync(manual: true));
+        menu.Opening += (_, _) => autostart.Checked = IsAutostartEnabled();
         _loginItem = new ToolStripMenuItem("", null, (_, _) => ToggleLoginSupport());
         menu.Items.Add(_loginItem);
         menu.Opening += (_, _) => _loginItem.Text = Service.LoginSupport.IsInstalled()
             ? "✓ Akses layar login Windows aktif — nonaktifkan…"
             : "Aktifkan akses layar login Windows (buka kunci dari jauh)…";
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Exit", null, (_, _) => ExitApp());
+        menu.Items.Add("Keluar", null, (_, _) => ExitApp());
         return menu;
     }
 

@@ -2,6 +2,6 @@
   <!-- Satu sumber versi untuk semua proyek (Client, Host, Shared, Relay, Maui).
        -p:Version=... (installer/CI) tetap menimpa nilai ini. -->
   <PropertyGroup>
-    <Version Condition="'$(Version)' == ''">1.4.55</Version>
+    <Version Condition="'$(Version)' == ''">1.4.56</Version>
   </PropertyGroup>
 </Project>
