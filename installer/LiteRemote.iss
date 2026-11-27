@@ -140,7 +140,11 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   // Remember whether the tray host was up, so an upgrade doesn't leave the PC unreachable on 7443.
   // In-app updates pass /RESTARTHOST=1 (the viewer checked its own session); manual installs probe.
-  if IsInAppUpdate() then
+  // Self-update by the SYSTEM login daemon: there is no interactive tray of 'ours' to bring back
+  // (relaunching as the original user would start a SYSTEM tray in session 0).
+  if ExpandConstant('{param:DAEMONUPDATE|0}') = '1' then
+    HostWasRunning := False
+  else if IsInAppUpdate() then
     HostWasRunning := ExpandConstant('{param:RESTARTHOST|0}') = '1'
   else
     HostWasRunning := IsUserProcessRunning('{#HostExe}');

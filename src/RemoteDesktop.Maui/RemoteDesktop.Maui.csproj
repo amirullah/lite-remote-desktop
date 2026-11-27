@@ -38,7 +38,7 @@
 		<!-- Versions -->
 		<!-- Follow the release version (build with -p:Version=x.y.z). Android only installs an update whose
 		     versionCode is >= the installed one, so derive it from the version: 1.4.50 -> 10450. -->
-		<Version Condition="'$(Version)' == ''">1.4.58</Version>
+		<Version Condition="'$(Version)' == ''">1.4.59</Version>
 		<ApplicationDisplayVersion>$(Version)</ApplicationDisplayVersion>
 		<ApplicationVersion>$([MSBuild]::Add($([MSBuild]::Add($([MSBuild]::Multiply($([System.Version]::Parse($(Version)).Major), 10000)), $([MSBuild]::Multiply($([System.Version]::Parse($(Version)).Minor), 100)))), $([System.Version]::Parse($(Version)).Build)))</ApplicationVersion>
 

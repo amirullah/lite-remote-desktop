@@ -141,7 +141,22 @@ public sealed class InputInjector
     private static void SendOne(INPUT input)
     {
         var arr = new[] { input };
-        if (SendInput(1, arr, Marshal.SizeOf<INPUT>()) == 0 && Capture.DesktopFollow.Enabled)
+        uint sent = SendInput(1, arr, Marshal.SizeOf<INPUT>());
+        if (Capture.DesktopFollow.Enabled && Capture.DesktopFollow.BoundThreadDesktop == "Winlogon" && _diagCount < 60)
+        {
+            // Login-screen diagnostics: what was injected, whether Windows took it, and which window has
+            // focus there — tells "blocked" apart from "accepted but nothing focused".
+            _diagCount++;
+            int le = Marshal.GetLastWin32Error();
+            IntPtr fg = GetForegroundWindow();
+            var cls = new System.Text.StringBuilder(128);
+            if (fg != IntPtr.Zero) GetClassName(fg, cls, cls.Capacity);
+            string what = input.type == INPUT_KEYBOARD
+                ? $"key vk=0x{input.U.ki.wVk:X2} scan=0x{input.U.ki.wScan:X2} flags=0x{input.U.ki.dwFlags:X}"
+                : $"mouse flags=0x{input.U.mi.dwFlags:X}";
+            Service.AgentDiag.Log($"inject {what} -> sent={sent} err={le} fg=0x{fg:X} '{cls}'");
+        }
+        if (sent == 0 && Capture.DesktopFollow.Enabled)
         {
             // Agent mode: make a blocked injection visible in agent.log (rate-limited) instead of silent.
             int err = Marshal.GetLastWin32Error();
@@ -155,6 +170,11 @@ public sealed class InputInjector
     }
 
     private static long _lastFailLog;
+    private static int _diagCount;
+
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
 
     // ---------- P/Invoke ----------
 

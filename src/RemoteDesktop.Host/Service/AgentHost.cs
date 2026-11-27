@@ -43,6 +43,7 @@ internal static class AgentHost
         using var lf = LoggerFactory.Create(b => b.AddSimpleConsole().SetMinimumLevel(LogLevel.Information));
         var log = lf.CreateLogger("Daemon");
         log.LogInformation("Daemon starting as {User}", Environment.UserName);
+        AgentDiag.Enabled = true;   // self-update decisions go to agent.log
 
         int agentPid = 0;
         uint lastSession = 0xFFFFFFFF;
@@ -65,6 +66,7 @@ internal static class AgentHost
                 }
             }
             catch (Exception ex) { log.LogWarning(ex, "Daemon loop error; retrying."); }
+            DaemonUpdater.Tick();   // self-update so a locked/unattended PC still receives fixes
             Thread.Sleep(3000);
         }
     }
