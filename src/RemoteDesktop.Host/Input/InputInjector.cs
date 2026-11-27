@@ -141,8 +141,20 @@ public sealed class InputInjector
     private static void SendOne(INPUT input)
     {
         var arr = new[] { input };
-        SendInput(1, arr, Marshal.SizeOf<INPUT>());
+        if (SendInput(1, arr, Marshal.SizeOf<INPUT>()) == 0 && Capture.DesktopFollow.Enabled)
+        {
+            // Agent mode: make a blocked injection visible in agent.log (rate-limited) instead of silent.
+            int err = Marshal.GetLastWin32Error();
+            long now = Environment.TickCount64;
+            if (now - _lastFailLog > 3000)
+            {
+                _lastFailLog = now;
+                Service.AgentDiag.Log($"SendInput FAILED err={err} on '{Capture.DesktopFollow.BoundThreadDesktop}'");
+            }
+        }
     }
+
+    private static long _lastFailLog;
 
     // ---------- P/Invoke ----------
 

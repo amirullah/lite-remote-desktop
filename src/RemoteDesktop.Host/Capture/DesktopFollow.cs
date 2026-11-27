@@ -40,7 +40,7 @@ internal static class DesktopFollow
     {
         if (!Enabled) return false;
         IntPtr h = OpenInputDesktop(0, true,
-            DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS | DESKTOP_CREATEWINDOW | DESKTOP_ENUMERATE | GENERIC_READ);
+            InputDesktopAccess);
         if (h == IntPtr.Zero) return false;
 
         string name = GetDesktopName(h);
@@ -105,7 +105,7 @@ internal static class DesktopFollow
     public static void BindCurrentThreadToInput()
     {
         IntPtr h = OpenInputDesktop(0, true,
-            DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS | DESKTOP_CREATEWINDOW | DESKTOP_ENUMERATE | GENERIC_READ);
+            InputDesktopAccess);
         if (h == IntPtr.Zero) return;
         string name = GetDesktopName(h);
         if (name.Length == 0 || name == _threadDesk) { CloseDesktop(h); return; }
@@ -137,7 +137,14 @@ internal static class DesktopFollow
     private const int UOI_NAME = 2;
     private const uint DESKTOP_READOBJECTS = 0x0001, DESKTOP_CREATEWINDOW = 0x0002,
         DESKTOP_ENUMERATE = 0x0040, DESKTOP_WRITEOBJECTS = 0x0080;
-    private const uint GENERIC_READ = 0x80000000;
+    private const uint GENERIC_READ = 0x80000000, GENERIC_WRITE = 0x40000000;
+    private const uint DESKTOP_CREATEMENU = 0x0004, DESKTOP_HOOKCONTROL = 0x0008, DESKTOP_JOURNALPLAYBACK = 0x0020, DESKTOP_SWITCHDESKTOP = 0x0100;
+    // Same rights RustDesk/TigerVNC request. GENERIC_WRITE carries DESKTOP_JOURNALPLAYBACK, which SendInput
+    // needs on the secure Winlogon desktop — without it injected keys/clicks on the lock/login screen are
+    // silently dropped while the normal desktop (more permissive) still accepts them.
+    private const uint InputDesktopAccess = DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS | DESKTOP_CREATEWINDOW |
+        DESKTOP_CREATEMENU | DESKTOP_HOOKCONTROL | DESKTOP_JOURNALPLAYBACK | DESKTOP_ENUMERATE |
+        DESKTOP_SWITCHDESKTOP | GENERIC_READ | GENERIC_WRITE;
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesiredAccess);

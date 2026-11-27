@@ -606,7 +606,9 @@ public sealed class HostSession
                 {
                     if (captureMs < captureMinMs) captureMinMs = captureMs;
                     captureSamples++;
-                    if (!_forceGdi && captureSamples >= 30 && captureMinMs > 60 &&
+                    // Never in agent mode: GDI cannot see the login/lock screen (it would show only the
+                    // wallpaper), so a slow DXGI picture beats an unusable fast one there.
+                    if (!_forceGdi && !DesktopFollow.Enabled && captureSamples >= 30 && captureMinMs > 60 &&
                         capture.BackendName.StartsWith("DXGI", StringComparison.Ordinal))
                     {
                         _log.LogWarning(
