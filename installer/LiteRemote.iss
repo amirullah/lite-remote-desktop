@@ -85,6 +85,10 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 ; and a later reinstall's tray host would step aside for it.
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN LiteRemoteLogin /F"; Flags: runhidden; RunOnceId: "DelLoginTask"
 
+[UninstallDelete]
+; Marker the tray uses to see login support (a non-admin can't query the SYSTEM task).
+Type: files; Name: "{commonappdata}\LiteRemote\login-support.on"
+
 [Code]
 var
   HostWasRunning: Boolean;

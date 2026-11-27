@@ -18,8 +18,21 @@ internal static class LoginSupport
     /// True when login-screen support is installed (the SYSTEM daemon owns the port and serves clients).
     /// The interactive tray host uses this to step aside instead of fighting over port 7443.
     /// </summary>
+    // A non-elevated user may not query a SYSTEM task (schtasks says "access denied"), so the tray could
+    // not see that the service exists, bound 7443 itself and failed. Install drops a world-readable marker
+    // in ProgramData, and a running SYSTEM daemon in session 0 is accepted as proof too.
+    private static string Marker => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "LiteRemote", "login-support.on");
+
     public static bool IsInstalled()
     {
+        try { if (File.Exists(Marker)) return true; } catch { }
+        try
+        {
+            foreach (var p in Process.GetProcessesByName("LiteRemoteHost"))
+                using (p) if (p.SessionId == 0) return true;
+        }
+        catch { }
         try
         {
             using var p = Process.Start(new ProcessStartInfo("schtasks", $"/query /tn {TaskName}")
@@ -41,6 +54,7 @@ internal static class LoginSupport
         // session's secure desktop.
         Run("schtasks", $"/create /tn {TaskName} /tr \"\\\"{exe}\\\" --daemon\" /sc onstart /ru SYSTEM /rl highest /f");
         Run("schtasks", $"/run /tn {TaskName}");
+        try { Directory.CreateDirectory(Path.GetDirectoryName(Marker)!); File.WriteAllText(Marker, DateTime.UtcNow.ToString("o")); } catch { }
         Console.WriteLine("Done. The host now runs as a SYSTEM agent and can show the Windows login screen.");
         Console.WriteLine("Stop the tray host if it is running — the agent is the host now (same port).");
     }
@@ -49,6 +63,7 @@ internal static class LoginSupport
     {
         Console.WriteLine("Removing LiteRemote login-screen support…");
         Run("schtasks", $"/delete /tn {TaskName} /f");
+        try { File.Delete(Marker); } catch { }
         // Stop only the SYSTEM daemon/agent — the user's tray (which may have asked for this) keeps running
         // and takes the port back.
         Run("taskkill", "/F /FI \"IMAGENAME eq LiteRemoteHost.exe\" /FI \"USERNAME eq NT AUTHORITY\\SYSTEM\"");
