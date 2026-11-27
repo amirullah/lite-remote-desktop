@@ -51,7 +51,9 @@ internal static class Program
             // Login-screen support (runs the host as a SYSTEM agent that can reach the secure desktop).
             if (args[i] == "--agent") { Service.AgentHost.RunAgent(); return; }
             if (args[i] == "--daemon") { Service.AgentHost.RunDaemon(); return; }
-            if (args[i] == "--install-login") { AttachConsoleForCli(); Service.LoginSupport.Install(); return; }
+            // Optional next arg: the interactive user's config folder (passed by the tray / installer).
+            if (args[i] == "--install-login") { AttachConsoleForCli(); Service.LoginSupport.Install(i + 1 < args.Length ? args[i + 1] : null); return; }
+            if (args[i] == "--sync-login-config") { AttachConsoleForCli(); Service.LoginSupport.SyncConfig(i + 1 < args.Length ? args[i + 1] : null); return; }
             if (args[i] == "--uninstall-login") { AttachConsoleForCli(); Service.LoginSupport.Uninstall(); return; }
         }
 
@@ -111,6 +113,7 @@ internal sealed class TrayContext : ApplicationContext
             _tray.ShowBalloonTip(5000, "LiteRemote Host",
                 "Login-support is active: a background service handles connections and can show the " +
                 "Windows login screen. This tray is for settings only.", ToolTipIcon.Info);
+            EnsureAuthConfigured();   // a password set here is pushed to the service (SetPassword syncs)
         }
         else
         {
@@ -200,8 +203,87 @@ internal sealed class TrayContext : ApplicationContext
         menu.Items.Add("Set up ID access (relay)…", null, (_, _) => ConfigureRelay());
         menu.Items.Add("Configure Google login…", null, (_, _) => ConfigureGoogle());
         menu.Items.Add(new ToolStripSeparator());
+        _loginItem = new ToolStripMenuItem("", null, (_, _) => ToggleLoginSupport());
+        menu.Items.Add(_loginItem);
+        menu.Opening += (_, _) => _loginItem.Text = Service.LoginSupport.IsInstalled()
+            ? "✓ Akses layar login Windows aktif — nonaktifkan…"
+            : "Aktifkan akses layar login Windows (buka kunci dari jauh)…";
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitApp());
         return menu;
+    }
+
+    // ---------------- login-screen support (no terminal needed) ----------------
+
+    private ToolStripMenuItem _loginItem = null!;
+    private static string UserConfigDir => Path.GetDirectoryName(AppPaths.HostCertificate)!;
+
+    /// <summary>Run this exe elevated (one UAC prompt) with the given args; true if it ran and exited 0.</summary>
+    private static async Task<bool> RunElevatedAsync(string args)
+    {
+        try
+        {
+            using var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!, args)
+            { UseShellExecute = true, Verb = "runas", WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden });
+            if (p is null) return false;
+            await p.WaitForExitAsync();
+            return p.ExitCode == 0;
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223) { return false; } // UAC declined
+    }
+
+    private async void ToggleLoginSupport()
+    {
+        bool installed = Service.LoginSupport.IsInstalled();
+        if (!installed)
+        {
+            var ok = MessageBox.Show(
+                "Aktifkan akses layar login Windows?\n\n" +
+                "Dengan ini Anda bisa membuka kunci PC (mengetik PIN/password Windows) dan masuk dari jauh, " +
+                "juga setelah PC restart. LiteRemote akan berjalan sebagai layanan sistem.\n\n" +
+                "Windows akan meminta izin administrator satu kali.",
+                "LiteRemote Host", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+            if (ok != DialogResult.OK) return;
+            EnsureAuthConfigured();
+            // Free port 7443 for the service before it starts.
+            if (_server != null) { await _server.DisposeAsync(); _server = null; }
+            if (await RunElevatedAsync($"--install-login \"{UserConfigDir}\"") && Service.LoginSupport.IsInstalled())
+            {
+                _tray.Text = "LiteRemote Host — login-support mode";
+                _tray.ShowBalloonTip(5000, "LiteRemote Host",
+                    "Akses layar login aktif. PC bisa dibuka kuncinya dari jauh.", ToolTipIcon.Info);
+            }
+            else
+            {
+                StartServer();   // declined/failed: keep serving as before
+                MessageBox.Show("Akses layar login tidak diaktifkan (izin administrator ditolak atau gagal).",
+                    "LiteRemote Host", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+        else
+        {
+            var ok = MessageBox.Show(
+                "Nonaktifkan akses layar login Windows?\n\nSetelah ini PC yang terkunci tidak bisa dibuka dari jauh.",
+                "LiteRemote Host", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+            if (ok != DialogResult.OK) return;
+            if (await RunElevatedAsync("--uninstall-login") && !Service.LoginSupport.IsInstalled())
+            {
+                await Task.Delay(1000);   // let the SYSTEM copies release the port
+                _tray.Text = "LiteRemote Host";
+                StartServer();
+            }
+        }
+    }
+
+    /// <summary>The SYSTEM service keeps its own copy of the settings: after a change, push it (one UAC).</summary>
+    private async Task SyncLoginConfigAsync()
+    {
+        if (!Service.LoginSupport.IsInstalled()) return;
+        if (!await RunElevatedAsync($"--sync-login-config \"{UserConfigDir}\""))
+            MessageBox.Show(
+                "Pengaturan tersimpan, tetapi layanan layar login belum diperbarui (izin administrator ditolak).\n" +
+                "Koneksi masih memakai pengaturan lama sampai Anda mengulanginya.",
+                "LiteRemote Host", MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 
     private void EnsureAuthConfigured()
@@ -244,7 +326,12 @@ internal sealed class TrayContext : ApplicationContext
 
     private void ShowStatus()
     {
-        var fp = _server?.Fingerprint ?? "(server not running)";
+        bool loginMode = Service.LoginSupport.IsInstalled();
+        var fp = _server?.Fingerprint ?? (loginMode
+            ? "(dilayani layanan layar login — sama dengan sidik jari yang sudah tersimpan di viewer)"
+            : "(server not running)");
+        var av = typeof(TrayContext).Assembly.GetName().Version;
+        string version = av is null ? "?" : $"{av.Major}.{av.Minor}.{Math.Max(0, av.Build)}";
         var methods = new List<string>();
         if (_config.AllowPassword && _config.HasPassword) methods.Add("Password");
         if (_config.AllowGoogle && !string.IsNullOrEmpty(_config.GoogleClientId)) methods.Add("Google");
@@ -261,7 +348,8 @@ internal sealed class TrayContext : ApplicationContext
         }
 
         MessageBox.Show(
-            $"LiteRemote Host\n\n" +
+            $"LiteRemote Host v{version}\n\n" +
+            $"Akses layar login Windows: {(loginMode ? "aktif" : "tidak aktif (aktifkan lewat menu tray)")}\n" +
             idLine +
             $"Port: {_config.Port}\n" +
             $"Bind: {_config.BindAddress}\n" +
@@ -281,6 +369,7 @@ internal sealed class TrayContext : ApplicationContext
         if (_config.RelayAddress.Length > 0) _config.EnsureIdentity();
         _config.Save();
         RestartServer();
+        _ = SyncLoginConfigAsync();
 
         var msg = _config.RelayAddress.Length == 0
             ? "ID access disabled."
@@ -297,6 +386,7 @@ internal sealed class TrayContext : ApplicationContext
         _config.SetPassword(pwd);
         _config.Save();
         _tray.ShowBalloonTip(2000, "LiteRemote Host", "Access password updated.", ToolTipIcon.Info);
+        _ = SyncLoginConfigAsync();
     }
 
     private void ConfigureGoogle()
@@ -315,6 +405,7 @@ internal sealed class TrayContext : ApplicationContext
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
         _config.Save();
         RestartServer();
+        _ = SyncLoginConfigAsync();
         _tray.ShowBalloonTip(2000, "LiteRemote Host", "Google login configured.", ToolTipIcon.Info);
     }
 

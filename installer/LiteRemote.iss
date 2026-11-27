@@ -46,6 +46,9 @@ Name: "hostautostart"; Description: "Start the LiteRemote Host automatically at 
 ; Checked by default: without this rule, direct (by-address) connections time out and users
 ; assume the app is broken. ID/relay mode works either way (outbound only).
 Name: "hostfirewall"; Description: "Add a Windows Firewall rule to allow incoming host connections (port 7443)"; GroupDescription: "Host options:"
+; Login-screen support: a SYSTEM service so a locked PC can be unlocked remotely (and works after reboot).
+; Applied here because Setup is already elevated - no terminal / extra UAC needed.
+Name: "loginsupport"; Description: "Allow unlocking this PC remotely (Windows login screen, also after restart)"; GroupDescription: "Host options:"
 
 [Files]
 ; Paths are relative to this .iss file (installer/), while publish/ sits at the repo root.
@@ -153,6 +156,12 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
+    // Login-screen support, before the task restart and tray relaunch below so the tray starts in
+    // settings mode instead of grabbing port 7443. In-app (silent) updates never newly enable it.
+    if WizardIsTaskSelected('loginsupport') and not IsInAppUpdate() then
+      Exec(ExpandConstant('{app}\host\{#HostExe}'),
+           '--install-login "' + ExpandConstant('{localappdata}') + '\LiteRemote"',
+           ExpandConstant('{app}\host'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
     // PrepareToInstall killed the SYSTEM --daemon too; its task only triggers at boot, so restart it
     // now if login support was installed, or the PC stays unreachable on 7443 until reboot.
     if Exec(ExpandConstant('{sys}\schtasks.exe'), '/Query /TN LiteRemoteLogin', '',

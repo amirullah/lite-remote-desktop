@@ -31,10 +31,10 @@ internal static class LoginSupport
         catch { return false; }
     }
 
-    public static void Install()
+    public static void Install(string? userRoot = null)
     {
         Console.WriteLine("Installing LiteRemote login-screen support…");
-        CopyConfigToSystemProfile();
+        CopyConfigToSystemProfile(userRoot);
 
         string exe = Environment.ProcessPath!;
         // Boot task, LocalSystem, highest privileges — the daemon needs SYSTEM to reach the console
@@ -49,26 +49,60 @@ internal static class LoginSupport
     {
         Console.WriteLine("Removing LiteRemote login-screen support…");
         Run("schtasks", $"/delete /tn {TaskName} /f");
-        foreach (var n in new[] { "LiteRemoteHost" })
-            foreach (var p in Process.GetProcessesByName(n))
-                try { if (p.Id != Environment.ProcessId) p.Kill(); } catch { }
+        // Stop only the SYSTEM daemon/agent — the user's tray (which may have asked for this) keeps running
+        // and takes the port back.
+        Run("taskkill", "/F /FI \"IMAGENAME eq LiteRemoteHost.exe\" /FI \"USERNAME eq NT AUTHORITY\\SYSTEM\"");
         Console.WriteLine("Done.");
     }
 
-    private static void CopyConfigToSystemProfile()
+    /// <summary>
+    /// Push the user's current password/relay/cert to the SYSTEM agent and restart it so the change
+    /// takes effect (the agent reads its own copy). Requires elevation, like Install.
+    /// </summary>
+    public static void SyncConfig(string? userRoot = null)
+    {
+        CopyConfigToSystemProfile(userRoot);
+        Run("schtasks", $"/end /tn {TaskName}");
+        // The daemon (session 0) and its agent (console session) both run as SYSTEM; the user's tray and
+        // this elevated helper do not, so filtering by user stops exactly the old SYSTEM copies.
+        Run("taskkill", "/F /FI \"IMAGENAME eq LiteRemoteHost.exe\" /FI \"USERNAME eq NT AUTHORITY\\SYSTEM\"");
+        Thread.Sleep(700);
+        Run("schtasks", $"/run /tn {TaskName}");
+    }
+
+    /// <param name="userRoot">The interactive user's LiteRemote config folder. Passed explicitly by the
+    /// tray/installer: an elevated process may run under a different (admin) account whose
+    /// LocalApplicationData is not the one holding the user's password and certificate.</param>
+    private static void CopyConfigToSystemProfile(string? userRoot)
     {
         // LocalSystem's LocalApplicationData.
         string sysRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),
             @"System32\config\systemprofile\AppData\Local\LiteRemote");
-        string userRoot = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LiteRemote");
+        userRoot = string.IsNullOrWhiteSpace(userRoot)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LiteRemote")
+            : userRoot.Trim().TrimEnd('\\');
         try
         {
             Directory.CreateDirectory(sysRoot);
-            foreach (var f in new[] { "host.json", "host.pfx" })
+            string json = Path.Combine(userRoot, "host.json");
+            if (File.Exists(json)) File.Copy(json, Path.Combine(sysRoot, "host.json"), overwrite: true);
+
+            // host.pfx is DPAPI-protected for the USER; SYSTEM can't decrypt that and would silently mint a
+            // NEW certificate — every pinned viewer then refuses the host as "key changed". Hand SYSTEM the
+            // decrypted PFX instead: systemprofile is SYSTEM/Administrators-only, and on first load the
+            // agent re-protects it with its own DPAPI key (CertificateManager's legacy-plaintext upgrade).
+            string pfx = Path.Combine(userRoot, "host.pfx");
+            if (File.Exists(pfx))
             {
-                string src = Path.Combine(userRoot, f);
-                if (File.Exists(src)) File.Copy(src, Path.Combine(sysRoot, f), overwrite: true);
+                var raw = File.ReadAllBytes(pfx);
+                byte[] plain;
+                try
+                {
+                    plain = System.Security.Cryptography.ProtectedData.Unprotect(
+                        raw, null, System.Security.Cryptography.DataProtectionScope.CurrentUser);
+                }
+                catch { plain = raw; }   // already plaintext (legacy) or another account's file: copy as-is
+                File.WriteAllBytes(Path.Combine(sysRoot, "host.pfx"), plain);
             }
             Console.WriteLine($"Copied config/cert to SYSTEM profile: {sysRoot}");
         }
