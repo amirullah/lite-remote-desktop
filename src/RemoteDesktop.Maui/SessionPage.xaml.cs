@@ -59,7 +59,17 @@ public partial class SessionPage : ContentPage, IRemoteInputSink
 #endif
 
         KeyInput.Text = Sentinel;
-        KeyInput.TextChanged += OnKeyText;   // Enter arrives as '\n' (Editor) → KeyMap → VK_RETURN
+        KeyInput.TextChanged += OnKeyText;
+#if ANDROID
+        // "Visible password" input type: the keyboard app does no composing/autocorrect/suggestions, so
+        // every key arrives as-is (no auto-inserted spaces, no rewrites of the hidden box).
+        KeyInput.HandlerChanged += (_, _) =>
+        {
+            if (KeyInput.Handler?.PlatformView is Android.Widget.EditText et)
+                et.InputType = Android.Text.InputTypes.ClassText | Android.Text.InputTypes.TextVariationVisiblePassword |
+                               Android.Text.InputTypes.TextFlagNoSuggestions | Android.Text.InputTypes.TextFlagMultiLine;
+        };
+#endif   // Enter arrives as '\n' (Editor) → KeyMap → VK_RETURN
 
         // Long-press detection needs a clock even when the finger doesn't move.
         Dispatcher.StartTimer(TimeSpan.FromMilliseconds(100), () =>
@@ -348,24 +358,33 @@ public partial class SessionPage : ContentPage, IRemoteInputSink
         Dispatcher.Dispatch(() => KeyInput.Focus());
     }
 
+    private long _echoUntil;   // IME echoes of our own reset arrive a few ms later — never treat them as keys
+
     private void OnKeyText(object? sender, TextChangedEventArgs e)
     {
         if (_resettingInput) return;
-        string oldT = e.OldTextValue ?? "", newT = e.NewTextValue ?? "";
-        if (newT.Length < oldT.Length)
+        string newT = e.NewTextValue ?? "";
+        if (newT == Sentinel) return;   // already at rest (often the IME re-syncing after our reset)
+
+        // Always diff against the sentinel we left behind, NOT OldTextValue: after we reset the box the
+        // keyboard app may push its own late "correction" (e.g. " 0" -> ""), which a diff against
+        // OldTextValue reads as Backspace — that erased every character right after it was typed.
+        long now = Environment.TickCount64;
+        if (newT.Length == 0)
         {
-            for (int i = 0; i < oldT.Length - newT.Length; i++) SendVk(KeyMap.Back);
+            // Sentinel deleted = a real Backspace, unless it is the echo right after a reset.
+            if (now >= _echoUntil) SendVk(KeyMap.Back);
         }
         else
         {
-            int common = 0;
-            while (common < oldT.Length && common < newT.Length && oldT[common] == newT[common]) common++;
-            foreach (char c in newT[common..]) SendChar(c);
+            string added = newT.StartsWith(Sentinel, StringComparison.Ordinal) ? newT[Sentinel.Length..] : newT;
+            foreach (char c in added) SendChar(c);
         }
         // Back to the sentinel so the box never fills up and Backspace keeps working.
         _resettingInput = true;
         KeyInput.Text = Sentinel;
         _resettingInput = false;
+        _echoUntil = now + 120;
     }
 
     private void SendChar(char c)
