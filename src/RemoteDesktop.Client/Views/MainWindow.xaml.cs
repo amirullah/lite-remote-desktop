@@ -68,6 +68,15 @@ public partial class MainWindow : Window
                 await System.Threading.Tasks.Task.Delay(4000);
                 await CheckForUpdateAsync();
             }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+
+        // The viewer often stays open for days: re-check every 6 h, not only at start-up.
+        if (_config.AutoCheckUpdates)
+        {
+            var recheck = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromHours(6) };
+            recheck.Tick += async (_, _) => { if (UpdateBanner.Visibility != Visibility.Visible) await CheckForUpdateAsync(); };
+            recheck.Start();
+            Closing += (_, _) => recheck.Stop();
+        }
     }
 
     // ---------------- in-app update ----------------

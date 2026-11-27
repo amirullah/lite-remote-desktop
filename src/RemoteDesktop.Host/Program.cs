@@ -117,6 +117,65 @@ internal sealed class TrayContext : ApplicationContext
             EnsureAuthConfigured();
             StartServer();
         }
+
+        // The tray is the part of LiteRemote that is always running, so it is the one that notices
+        // new releases (the viewer only checks while it is open). Clicking the notice opens the viewer,
+        // whose banner downloads, verifies and installs the update.
+        _tray.BalloonTipClicked += (_, _) => { if (_updateNoticeShown) OpenViewerForUpdate(); };
+        _updateTimer = new System.Windows.Forms.Timer { Interval = 30_000 };
+        _updateTimer.Tick += async (_, _) =>
+        {
+            _updateTimer.Interval = 6 * 60 * 60 * 1000;   // first check 30 s after start, then every 6 h
+            await CheckForUpdateAsync();
+        };
+        _updateTimer.Start();
+    }
+
+    // ---------------- update notice ----------------
+
+    private readonly System.Windows.Forms.Timer _updateTimer;
+    private bool _updateNoticeShown;
+    private string? _notifiedVersion;
+
+    private async Task CheckForUpdateAsync()
+    {
+        try
+        {
+            using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("LiteRemote-Host");
+            http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+            var json = await http.GetStringAsync("https://api.github.com/repos/amirullah/lite-remote-desktop/releases/latest");
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("draft", out var d) && d.ValueKind == System.Text.Json.JsonValueKind.True) return;
+            if (root.TryGetProperty("prerelease", out var p) && p.ValueKind == System.Text.Json.JsonValueKind.True) return;
+            var tag = root.TryGetProperty("tag_name", out var t) ? t.GetString() : null;
+            if (string.IsNullOrWhiteSpace(tag) || !Version.TryParse(tag.Trim().TrimStart('v', 'V'), out var latest)) return;
+            latest = new Version(latest.Major, latest.Minor, Math.Max(0, latest.Build));
+            var a = typeof(TrayContext).Assembly.GetName().Version ?? new Version(0, 0, 0);
+            var current = new Version(a.Major, a.Minor, Math.Max(0, a.Build));
+            if (latest <= current || latest.ToString(3) == _notifiedVersion) return;
+            _notifiedVersion = latest.ToString(3);
+            _updateNoticeShown = true;
+            _tray.Text = $"LiteRemote Host — pembaruan v{_notifiedVersion} tersedia";
+            _tray.ShowBalloonTip(10000, "Pembaruan LiteRemote tersedia",
+                $"Versi v{_notifiedVersion} sudah rilis (terpasang: v{current.ToString(3)}). Klik untuk memperbarui.", ToolTipIcon.Info);
+        }
+        catch (Exception ex) { _log.LogDebug("Update check failed: {Msg}", ex.Message); }   // offline: stay quiet
+    }
+
+    private void OpenViewerForUpdate()
+    {
+        try
+        {
+            var viewer = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "client", "LiteRemote.exe"));
+            if (File.Exists(viewer))
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(viewer) { UseShellExecute = true });
+            else
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                    "https://github.com/amirullah/lite-remote-desktop/releases/latest") { UseShellExecute = true });
+        }
+        catch (Exception ex) { _log.LogWarning("Could not open the viewer for the update: {Msg}", ex.Message); }
     }
 
     private static Icon LoadAppIcon()
